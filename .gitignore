@@ -1,0 +1,44 @@
+# --- Python (backend) ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.db
+*.sqlite3
+backend/data/uploads/*
+!backend/data/uploads/.gitkeep
+backend/chroma/
+.chroma/
+
+# --- Node (frontend) ---
+node_modules/
+.next/
+out/
+frontend/.env*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# --- Env / secrets ---
+.env
+.env.local
+!.env.example
+!backend/.env.example
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# --- Editors ---
+.vscode/
+.idea/
+*.swp
+
+# --- Logs ---
+*.log

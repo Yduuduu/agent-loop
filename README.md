@@ -113,6 +113,38 @@ resume 페이로드 계약: `{"action": "approve" | "reject" | "takeover", "admi
 PYTHONPATH=. pytest tests/test_refund_agent.py tests/test_refund_api.py -v
 ```
 
+### 지식베이스 동적 업데이트 (Phase 6)
+
+`POST /api/knowledge-base/documents`로 PDF를 업로드하면 즉시 백그라운드에서
+`uploaded → chunking → embedding → indexed`(또는 `failed`) 순으로 인제스천이
+진행되고, `GET .../documents/{doc_id}/stream`으로 각 단계 진행률(`progress_pct`)을
+SSE로 받는다. Phase 1/2와 같은 어댑터 패턴(`app/api/kb_runner.py`)이며 같은
+`event_bus`를 공유한다(refund case와 doc_id 네임스페이스만 `kb:` 접두어로 분리).
+버전 관리는 MVP 범위에서 추가만 지원한다 — 같은 파일명을 다시 올려도 이전
+청크를 덮어쓰지 않는다(벡터 id가 doc_id로 접두되어 매 업로드가 고유함).
+
+```bash
+cd backend
+uvicorn app.main:app --reload
+
+curl -X POST http://localhost:8000/api/knowledge-base/documents \
+  -F "file=@data/policy_docs/refund_policy.pdf;type=application/pdf"
+# → {"doc_id": "..."}
+
+curl -N http://localhost:8000/api/knowledge-base/documents/<doc_id>/stream
+# → event: chunking (25%) → embedding (60%) → indexed (100%, chunk_count)
+
+curl http://localhost:8000/api/knowledge-base/documents        # 목록(상태/청크수)
+```
+
+통합 테스트는 실제 임베딩 API를 호출하지 않도록 `DeterministicFakeEmbedding` +
+임시 디렉터리 Chroma를 주입하고, "업로드됨" 표시가 아니라 `search_policy_chunks`
+(실제 검색 경로)로 새로 올린 문서의 청크가 조회되는지까지 검증한다:
+
+```bash
+PYTHONPATH=. pytest tests/test_knowledge_base_api.py -v
+```
+
 ### Frontend
 
 ```bash
@@ -161,4 +193,16 @@ SSE(Zustand)가 아니라 React Query 폴링 데이터로 그리므로, 완료�
 ```bash
 cd frontend
 npm run test    # HitlPanel/대기열 정렬 포함
+```
+
+### 지식베이스 업로드 UI (Phase 6)
+
+`/knowledge-base`에서 PDF를 드래그앤드롭하거나 클릭해서 선택하면(타입/크기
+클라이언트 검증 후) 즉시 업로드되고, `components/kb-upload/UploadProgress`가
+SSE(`lib/kb-sse-client.ts`)로 단계별 라벨·퍼센트를 실시간으로 보여준다.
+완료/실패 시 문서 목록(React Query)도 함께 갱신된다.
+
+```bash
+cd frontend
+npm run test    # 검증 로직/SSE 클라이언트/업로드 추적 훅/DropZone 포함
 ```

@@ -26,6 +26,8 @@ def get_vectorstore() -> Chroma:
     )
 
 
-async def search_policy_chunks(query: str, *, k: int = 4) -> list[Document]:
-    vectorstore = get_vectorstore()
-    return await vectorstore.asimilarity_search(query, k=k)
+async def search_policy_chunks(
+    query: str, *, k: int = 4, vectorstore: Chroma | None = None
+) -> list[Document]:
+    store = vectorstore or get_vectorstore()
+    return await store.asimilarity_search(query, k=k)

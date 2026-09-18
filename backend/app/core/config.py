@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # 업로드 파일(환불 증빙 이미지) 로컬 저장 경로
     upload_dir: str = "./data/uploads"
 
+    # 지식베이스 원본 PDF 저장 경로 (Phase 1 목업 정책 문서와 동일 위치)
+    policy_docs_dir: str = "./data/policy_docs"
+
     # 관측성(Observability)
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""

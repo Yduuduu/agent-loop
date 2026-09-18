@@ -67,3 +67,33 @@ export interface RefundResumeRequest {
   admin_note?: string | null;
   admin_message?: string | null;
 }
+
+// --- 지식베이스(Phase 6) — 백엔드 app/api/schemas/{kb_events,knowledge_base}.py ---
+
+export type KBEventType = "uploaded" | "chunking" | "embedding" | "indexed" | "failed";
+
+export interface KBProgressData {
+  doc_id: string;
+  progress_pct?: number;
+  chunk_count?: number;
+}
+
+export interface KBFailedData {
+  doc_id: string;
+  message: string;
+}
+
+export type KBDocumentStatus = "uploaded" | "chunking" | "embedding" | "indexed" | "failed";
+
+export interface KBDocumentResponse {
+  doc_id: string;
+  filename: string;
+  status: KBDocumentStatus;
+  progress_pct: number;
+  chunk_count: number;
+  created_at: string;
+}
+
+export interface KBDocumentCreateResponse {
+  doc_id: string;
+}

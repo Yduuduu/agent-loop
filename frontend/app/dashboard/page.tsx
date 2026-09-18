@@ -23,12 +23,20 @@ export default function DashboardPage() {
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-10">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">환불 케이스 대시보드</h1>
-        <Link
-          href="/refund-cases"
-          className="rounded-md bg-status-progress px-3 py-1.5 text-sm font-medium text-white"
-        >
-          새 요청
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/knowledge-base"
+            className="text-sm text-text-secondary hover:text-foreground"
+          >
+            지식베이스
+          </Link>
+          <Link
+            href="/refund-cases"
+            className="rounded-md bg-status-progress px-3 py-1.5 text-sm font-medium text-white"
+          >
+            새 요청
+          </Link>
+        </div>
       </div>
 
       {queue.length > 0 && (

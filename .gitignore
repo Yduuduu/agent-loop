@@ -13,6 +13,10 @@ venv/
 *.sqlite3
 backend/data/uploads/*
 !backend/data/uploads/.gitkeep
+# Phase 6: 지식베이스 업로드로 생긴 PDF는 무시하고, Phase 1의 목업 정책
+# 문서(고정 fixture)만 추적한다.
+backend/data/policy_docs/*
+!backend/data/policy_docs/refund_policy.pdf
 backend/data/chroma/
 backend/chroma/
 .chroma/

@@ -88,6 +88,8 @@ class PolicyDocument(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     doc_id: Mapped[str] = mapped_column(String(32), unique=True, index=True, default=_uuid_hex)
     filename: Mapped[str] = mapped_column(String(255))
+    # uploaded -> chunking -> embedding -> indexed | failed
     status: Mapped[str] = mapped_column(String(32), default="uploaded")
+    progress_pct: Mapped[int] = mapped_column(Integer, default=0)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

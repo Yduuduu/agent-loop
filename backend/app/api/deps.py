@@ -2,12 +2,14 @@ from collections.abc import Callable
 from typing import Annotated
 
 from fastapi import Depends
+from langchain_chroma import Chroma
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.refund_agent.graph import build_graph
 from app.db.session import get_session
+from app.rag.retriever import get_vectorstore
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
@@ -23,3 +25,14 @@ def get_graph_builder() -> GraphBuilder:
 
 
 GraphBuilderDep = Annotated[GraphBuilder, Depends(get_graph_builder)]
+
+# 테스트에서 app.dependency_overrides[get_vectorstore_builder]로 치환해
+# 실제 임베딩 API 호출 없이 fake 벡터스토어(임시 디렉터리 + 결정론적 임베딩)를 쓴다.
+VectorstoreBuilder = Callable[[], Chroma]
+
+
+def get_vectorstore_builder() -> VectorstoreBuilder:
+    return get_vectorstore
+
+
+VectorstoreBuilderDep = Annotated[VectorstoreBuilder, Depends(get_vectorstore_builder)]

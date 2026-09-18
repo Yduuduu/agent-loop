@@ -1,4 +1,6 @@
 import type {
+  KBDocumentCreateResponse,
+  KBDocumentResponse,
   RefundCaseStatus,
   RefundCaseStatusResponse,
   RefundRequestCreateResponse,
@@ -64,4 +66,29 @@ export async function resumeRefundRequest(
 
 export function refundStreamUrl(caseId: string): string {
   return `${API_BASE_URL}/api/refund-requests/${caseId}/stream`;
+}
+
+export async function uploadKbDocument(file: File): Promise<KBDocumentCreateResponse> {
+  const form = new FormData();
+  form.set("file", file);
+
+  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/documents`, {
+    method: "POST",
+    body: form,
+  });
+  return parseOrThrow(response);
+}
+
+export async function listKbDocuments(): Promise<KBDocumentResponse[]> {
+  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/documents`);
+  return parseOrThrow(response);
+}
+
+export async function getKbDocument(docId: string): Promise<KBDocumentResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/documents/${docId}`);
+  return parseOrThrow(response);
+}
+
+export function kbDocumentStreamUrl(docId: string): string {
+  return `${API_BASE_URL}/api/knowledge-base/documents/${docId}/stream`;
 }

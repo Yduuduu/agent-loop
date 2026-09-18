@@ -9,7 +9,7 @@ import type {
   ToolCallData,
 } from "@/lib/types";
 
-export type ConnectionStatus = "idle" | "connecting" | "open" | "closed";
+export type ConnectionStatus = "idle" | "connecting" | "open" | "closed" | "unavailable";
 
 export interface ToolCallLogEntry {
   node: string;
@@ -34,6 +34,8 @@ interface RefundStreamState {
   startStream: (caseId: string) => void;
   handleConnectionOpen: () => void;
   handleConnectionClosed: () => void;
+  /** 스트림 큐가 이미 소비됐거나(410) 시작된 적 없어 재연결이 불가능한 경우. */
+  handleConnectionUnavailable: () => void;
   handleNodeStart: (data: NodeStartData) => void;
   handleNodeEnd: (data: NodeEndData) => void;
   handleToolCall: (data: ToolCallData) => void;
@@ -77,6 +79,8 @@ export const useRefundStreamStore = create<RefundStreamState>((set) => ({
 
   handleConnectionOpen: () => set({ connectionStatus: "open" }),
   handleConnectionClosed: () => set({ connectionStatus: "closed" }),
+  handleConnectionUnavailable: () =>
+    set((state) => (state.connectionStatus === "open" ? state : { connectionStatus: "unavailable" })),
 
   handleNodeStart: (data) =>
     set((state) => (state.caseId === data.case_id ? { currentNode: data.node } : state)),

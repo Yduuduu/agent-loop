@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { AppShell } from "@/components/app-shell";
 import { useCreateRefundRequest } from "@/hooks/use-refund-cases";
 
 export default function NewRefundCasePage() {
@@ -18,15 +19,11 @@ export default function NewRefundCasePage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-1 flex-col gap-6 px-6 py-10">
-      <div>
-        <h1 className="text-xl font-semibold">환불 요청 제출 (수동 테스트용)</h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          backend/data/mock_orders.json의 order_id를 사용해 시나리오를 테스트할 수 있습니다.
-        </p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+    <AppShell
+      title="새 환불 요청"
+      subtitle="backend/data/mock_orders.json의 order_id를 사용해 시나리오를 테스트할 수 있습니다."
+    >
+      <form onSubmit={handleSubmit} className="flex w-full max-w-md flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium">주문 ID</span>
           <input
@@ -61,6 +58,6 @@ export default function NewRefundCasePage() {
           </p>
         )}
       </form>
-    </div>
+    </AppShell>
   );
 }

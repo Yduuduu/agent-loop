@@ -1,15 +1,22 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --text-secondary: #52514e;
-  --surface-2: #f4f4f2;
-  --border-subtle: #e5e5e1;
-  --status-pending: #a8a7a0;
-  --status-progress: #2a78d6;
-  --status-good: #0ca30c;
-  --status-critical: #d03b3b;
+  --background: #f6f7f9;
+  --foreground: #141821;
+  --text-secondary: #5b6472;
+  --surface-2: #eef0f3;
+  --surface-3: #ffffff;
+  --border-subtle: #dce0e6;
+  --accent: #9a6400;
+  --accent-soft: #f4ead4;
+  --panel: #12151b;
+  --panel-foreground: #e7eaee;
+  --panel-secondary: #8b93a1;
+  --panel-border: #262b34;
+  --status-pending: #8a93a3;
+  --status-progress: #1d5c99;
+  --status-good: #157f3c;
+  --status-critical: #b23a2e;
 }
 
 @theme inline {
@@ -17,7 +24,14 @@
   --color-foreground: var(--foreground);
   --color-text-secondary: var(--text-secondary);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
   --color-border-subtle: var(--border-subtle);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+  --color-panel-secondary: var(--panel-secondary);
+  --color-panel-border: var(--panel-border);
   --color-status-pending: var(--status-pending);
   --color-status-progress: var(--status-progress);
   --color-status-good: var(--status-good);
@@ -27,14 +41,43 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --text-secondary: #c3c2b7;
-    --surface-2: #1a1a19;
-    --border-subtle: #2c2c2a;
-    --status-progress: #3987e5;
+  :root:not([data-theme="light"]) {
+    --background: #10141b;
+    --foreground: #e7eaee;
+    --text-secondary: #8b93a1;
+    --surface-2: #171c25;
+    --surface-3: #1d2430;
+    --border-subtle: #262e3a;
+    --accent: #e0a438;
+    --accent-soft: #332711;
+    --panel: #0b0d12;
+    --panel-foreground: #e7eaee;
+    --panel-secondary: #6b7280;
+    --panel-border: #1c212a;
+    --status-pending: #6b7280;
+    --status-progress: #4c8dd9;
+    --status-good: #35b86a;
+    --status-critical: #e05c4e;
   }
+}
+
+:root[data-theme="dark"] {
+  --background: #10141b;
+  --foreground: #e7eaee;
+  --text-secondary: #8b93a1;
+  --surface-2: #171c25;
+  --surface-3: #1d2430;
+  --border-subtle: #262e3a;
+  --accent: #e0a438;
+  --accent-soft: #332711;
+  --panel: #0b0d12;
+  --panel-foreground: #e7eaee;
+  --panel-secondary: #6b7280;
+  --panel-border: #1c212a;
+  --status-pending: #6b7280;
+  --status-progress: #4c8dd9;
+  --status-good: #35b86a;
+  --status-critical: #e05c4e;
 }
 
 body {

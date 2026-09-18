@@ -1,7 +1,6 @@
 "use client";
 
-import Link from "next/link";
-
+import { AppShell } from "@/components/app-shell";
 import { DropZone } from "@/components/kb-upload/drop-zone";
 import { UploadProgress } from "@/components/kb-upload/upload-progress";
 import { useKbDocuments, useUploadKbDocument } from "@/hooks/use-kb-documents";
@@ -32,19 +31,11 @@ export default function KnowledgeBasePage() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-10">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">지식베이스 관리</h1>
-          <p className="mt-1 text-sm text-text-secondary">
-            환불 정책 PDF를 업로드하면 자동으로 청킹·임베딩되어 검색에 반영됩니다.
-          </p>
-        </div>
-        <Link href="/dashboard" className="text-sm text-text-secondary hover:text-foreground">
-          대시보드로 →
-        </Link>
-      </div>
-
+    <AppShell
+      title="지식베이스 관리"
+      subtitle="환불 정책 PDF를 업로드하면 자동으로 청킹·임베딩되어 검색에 반영됩니다."
+    >
+      <div className="flex w-full max-w-2xl flex-col gap-8">
       <DropZone onFilesAccepted={handleFilesAccepted} />
 
       {upload.isError && (
@@ -87,6 +78,7 @@ export default function KnowledgeBasePage() {
           </ul>
         )}
       </section>
-    </div>
+      </div>
+    </AppShell>
   );
 }

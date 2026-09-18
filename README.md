@@ -18,6 +18,15 @@ agent-loop/
 
 ## 로컬 개발
 
+백엔드 `.venv` 설치와 프론트엔드 `npm install`이 끝난 상태라면, 루트에서 아래 명령 한 줄로
+백엔드(uvicorn)와 프론트엔드(next dev)를 동시에 띄울 수 있다(Ctrl+C로 둘 다 종료):
+
+```bash
+./dev.sh
+```
+
+최초 설정이나 개별 실행이 필요하면 아래 섹션을 따른다.
+
 ### Backend
 
 ```bash

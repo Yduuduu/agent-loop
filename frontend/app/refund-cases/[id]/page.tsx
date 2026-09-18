@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
 import { AgentViewerStream } from "@/components/agent-viewer/agent-viewer-stream";
+import { AppShell } from "@/components/app-shell";
 import { HitlPanel } from "@/components/hitl/hitl-panel";
 import { useRefundCase } from "@/hooks/use-refund-cases";
 
@@ -32,16 +32,8 @@ export default function RefundCaseDetailPage() {
   const [streamGeneration, setStreamGeneration] = useState(0);
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-6 py-10">
-      <Link href="/dashboard" className="text-sm text-text-secondary hover:text-foreground">
-        ← 대시보드로
-      </Link>
-
-      <div>
-        <h1 className="text-xl font-semibold">환불 케이스 상세</h1>
-        <p className="mt-1 font-mono text-sm text-text-secondary">{id}</p>
-      </div>
-
+    <AppShell title="환불 케이스 상세" subtitle={id}>
+      <div className="flex w-full max-w-2xl flex-col gap-6">
       {isLoading && <p className="text-sm text-text-secondary">불러오는 중...</p>}
       {error && <p className="text-sm text-status-critical">케이스 정보를 불러오지 못했습니다.</p>}
 
@@ -95,6 +87,7 @@ export default function RefundCaseDetailPage() {
         <h2 className="mb-3 text-sm font-medium text-text-secondary">에이전트 추론 과정</h2>
         {id && <AgentViewerStream key={streamGeneration} caseId={id} />}
       </section>
-    </div>
+      </div>
+    </AppShell>
   );
 }

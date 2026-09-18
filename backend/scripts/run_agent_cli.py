@@ -6,7 +6,7 @@
         --image mock_evidence/ord-1001-damage-1.jpg
 
 사전 준비: `python scripts/seed_db.py`로 목업 주문 적재,
-`python scripts/ingest_policy_docs.py`로 정책 PDF 인덱싱, `.env`에 OPENAI_API_KEY 설정.
+`python scripts/ingest_policy_docs.py`로 정책 PDF 인덱싱, `.env`에 GOOGLE_API_KEY 설정.
 """
 
 import argparse

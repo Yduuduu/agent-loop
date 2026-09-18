@@ -9,7 +9,7 @@ from collections.abc import Awaitable, Callable
 from datetime import date
 from typing import Literal
 
-from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.types import interrupt
 
 from app.agents.refund_agent.prompts import (
@@ -43,7 +43,8 @@ async def default_order_lookup(order_id: str) -> dict | None:
 
 async def default_assess_damage(user_message: str, image_refs: list[str]) -> DamageAssessment:
     settings = get_settings()
-    llm = ChatOpenAI(model="gpt-4o", temperature=0, api_key=settings.openai_api_key)
+    # gemini-3.6-flash는 고정 샘플링을 쓰므로 temperature를 넘기지 않는다(무시되고 경고만 남음).
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", google_api_key=settings.google_api_key)
     structured_llm = llm.with_structured_output(DamageAssessment)
     prompt = DAMAGE_ASSESSMENT_USER_TEMPLATE.format(
         user_message=user_message, image_refs=image_refs
@@ -65,7 +66,7 @@ async def default_decide(
     order_data: dict, damage_assessment: dict, policy_findings: list[dict], reference_date: str
 ) -> Decision:
     settings = get_settings()
-    llm = ChatOpenAI(model="gpt-4o", temperature=0, api_key=settings.openai_api_key)
+    llm = ChatGoogleGenerativeAI(model="gemini-3.6-flash", google_api_key=settings.google_api_key)
     structured_llm = llm.with_structured_output(Decision)
     prompt = DECISION_USER_TEMPLATE.format(
         reference_date=reference_date,

@@ -2,16 +2,18 @@ from functools import lru_cache
 
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 from app.core.config import get_settings
 
 COLLECTION_NAME = "refund_policy"
 
 
-def get_embeddings() -> OpenAIEmbeddings:
+def get_embeddings() -> GoogleGenerativeAIEmbeddings:
     settings = get_settings()
-    return OpenAIEmbeddings(model="text-embedding-3-small", api_key=settings.openai_api_key)
+    return GoogleGenerativeAIEmbeddings(
+        model="models/gemini-embedding-001", google_api_key=settings.google_api_key
+    )
 
 
 @lru_cache

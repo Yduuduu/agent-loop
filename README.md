@@ -34,7 +34,7 @@ uvicorn app.main:app --reload
 ### RefundAgent 단독 실행 (Phase 1)
 
 DB 마이그레이션 → 목업 주문 시딩 → 정책 문서 인덱싱 → CLI 실행 순서로 진행한다.
-`.env`에 실제 `OPENAI_API_KEY`가 있어야 damage_assessment/decision 노드가 동작한다.
+`.env`에 실제 `GOOGLE_API_KEY`(Gemini)가 있어야 damage_assessment/decision 노드가 동작한다.
 
 ```bash
 cd backend

@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     app_name: str = "AgentOps"
     debug: bool = False
 
-    # LLM
-    openai_api_key: str = ""
+    # LLM (Google Gemini — damage_assessment/decision 노드 + RAG 임베딩 공용)
+    google_api_key: str = ""
 
     # DB — 로컬 개발은 SQLite, 운영은 Postgres URL로 교체
     # (앱 코드에서 SQLite 전용 문법을 금지해 이 교체가 한 줄 변경으로 끝나도록 함)

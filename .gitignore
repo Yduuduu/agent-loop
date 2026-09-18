@@ -8,6 +8,8 @@ venv/
 .ruff_cache/
 .mypy_cache/
 *.db
+*.db-shm
+*.db-wal
 *.sqlite3
 backend/data/uploads/*
 !backend/data/uploads/.gitkeep

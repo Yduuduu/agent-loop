@@ -10,6 +10,7 @@ from datetime import date
 from typing import Literal
 
 from langchain_openai import ChatOpenAI
+from langgraph.types import interrupt
 
 from app.agents.refund_agent.prompts import (
     DAMAGE_ASSESSMENT_SYSTEM_PROMPT,
@@ -180,6 +181,13 @@ async def finalize_node(state: RefundAgentState) -> dict:
 
 
 async def flag_for_human_node(state: RefundAgentState) -> dict:
+    """사람 검토 대기 노드.
+
+    interrupt() 호출은 체크포인터에 상태를 영속화하고 그래프 실행을 진짜로
+    중단시킨다. 재개는 API의 POST .../resume가 Command(resume=payload)로
+    주입하며, 이 함수는 그 지점부터(처음부터 다시 실행되지만 interrupt()는
+    이번엔 멈추지 않고 payload를 즉시 반환) 이어서 실행된다.
+    """
     order_data = state["order_data"] or {}
     escalation_reason = state["decision_reason"] or ""
     if (
@@ -191,10 +199,36 @@ async def flag_for_human_node(state: RefundAgentState) -> dict:
             f"환불 금액(${amount:.2f})이 고액 기준(${HIGH_VALUE_THRESHOLD_USD:.0f})을 초과해 "
             f"사람 검토가 필요합니다. (1차 판정: {state['decision']} — {escalation_reason})"
         )
+
+    resolution = interrupt(
+        {
+            "reason": escalation_reason,
+            "order_data": order_data,
+            "suggested_decision": state["decision"],
+        }
+    )
+
+    action = resolution.get("action")
+    admin_note = resolution.get("admin_note")
+    admin_message = resolution.get("admin_message")
+
+    if action == "approve":
+        decision = "approve"
+        reason = admin_note or "관리자 승인"
+    elif action == "reject":
+        decision = "reject"
+        reason = admin_note or "관리자 거절"
+    elif action == "takeover":
+        # MVP 단순화: 그래프가 재추론하지 않고 관리자 메시지가 곧바로 최종 결정이 된다.
+        decision = "resolved"
+        reason = admin_message or "관리자 직접 개입으로 처리됨"
+    else:
+        raise ValueError(f"알 수 없는 resume action: {action}")
+
     return {
-        "decision": "needs_human",
-        "decision_reason": escalation_reason,
-        "requires_human": True,
-        "messages": ["사람 검토 대기 상태로 전환됨"],
-        "trace": [{"node": "flag_for_human", "event": "end", "detail": "awaiting_human"}],
+        "decision": decision,
+        "decision_reason": reason,
+        "requires_human": False,
+        "messages": [f"관리자 조치 완료: {action} — {reason}"],
+        "trace": [{"node": "flag_for_human", "event": "end", "detail": action}],
     }

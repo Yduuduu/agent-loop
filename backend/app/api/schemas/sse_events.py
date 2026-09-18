@@ -15,6 +15,10 @@ class SSEEventType(StrEnum):
     TOOL_CALL = "tool_call"
     DECISION = "decision"
     ERROR = "error"
+    # Phase 3 추가: 그래프가 interrupt()로 진짜 중단됐을 때 발행된다. decision과
+    # 달리 이 스트림 레그는 최종 결과 없이 끝난다 — 관리자가 resume해야
+    # 이어지는 새 스트림에서 decision/error가 도착한다.
+    AWAITING_HUMAN = "awaiting_human"
 
 
 class SSEEvent(BaseModel):

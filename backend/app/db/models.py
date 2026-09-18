@@ -52,9 +52,10 @@ class RefundCase(Base):
     user_message: Mapped[str] = mapped_column(Text)
     image_refs: Mapped[list[str]] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(32), default="pending")
-    # Phase 3 HITL 대기열용 필드 (Phase 1에서는 미사용, 스키마만 선점)
+    # HITL 대기열용 필드 — awaiting_human 상태가 될 때 refund_runner가 채운다.
     flagged_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     awaiting_human_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    refund_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

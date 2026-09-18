@@ -26,7 +26,9 @@ class RefundAgentState(TypedDict):
     policy_findings: list[dict]
 
     # 최종 산출물 (덮어쓰기)
-    decision: Literal["approve", "reject", "needs_human"] | None
+    # "resolved"는 Phase 3 HITL takeover(관리자 직접 개입) 전용 — approve/reject
+    # 어느 쪽으로도 강제하지 않고 관리자 메시지를 그대로 최종 사유로 남긴다.
+    decision: Literal["approve", "reject", "needs_human", "resolved"] | None
     decision_reason: str | None
     requires_human: bool
 

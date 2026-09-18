@@ -11,6 +11,7 @@
 
 import argparse
 import asyncio
+import uuid
 
 from app.agents.refund_agent.graph import build_graph
 from app.agents.refund_agent.state import initial_state
@@ -26,6 +27,9 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run(order_id: str, message: str, images: list[str]) -> None:
+    # CLI는 1회성 실행이라 build_graph() 기본값(InMemorySaver)으로 충분하다 —
+    # 사람 검토가 필요한 케이스는 일시정지된 채로 이 프로세스와 함께 끝난다.
+    # 재개는 API의 POST .../resume 전용이다(Phase 3).
     graph = build_graph()
     state = initial_state(order_id=order_id, user_message=message, image_refs=images)
 
@@ -34,11 +38,17 @@ async def run(order_id: str, message: str, images: list[str]) -> None:
     if langfuse_callback is not None:
         callbacks.append(langfuse_callback)
 
-    config = {"callbacks": callbacks} if callbacks else {}
+    config = {"configurable": {"thread_id": uuid.uuid4().hex}, "callbacks": callbacks}
 
     print(f"=== RefundAgent 실행: order_id={order_id} ===\n")
     final_state = state
     async for step in graph.astream(state, config=config, stream_mode="updates"):
+        if "__interrupt__" in step:
+            reason = step["__interrupt__"][0].value.get("reason")
+            print(f"\n⏸ 사람 검토가 필요합니다: {reason}")
+            print("   (CLI는 재개를 지원하지 않습니다 — API의 POST .../resume를 사용하세요)")
+            return
+
         for node_name, update in step.items():
             for msg in update.get("messages", []):
                 print(f"[{node_name}] {msg}")

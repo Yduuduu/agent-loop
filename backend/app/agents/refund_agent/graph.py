@@ -1,5 +1,7 @@
 from datetime import date
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -31,11 +33,17 @@ def build_graph(
     search_policy: SearchPolicyFn = default_search_policy,
     decide: DecideFn = default_decide,
     now_fn: NowFn = date.today,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:
     """RefundAgent StateGraph를 조립한다.
 
     기본값은 실제 DB/LLM/RAG를 호출하는 구현이며, 테스트에서는 각 인자에
     결정론적인 fake 콜러블을 주입해 네트워크 호출 없이 그래프 로직을 검증한다.
+
+    flag_for_human 노드가 interrupt()로 실행을 진짜 중단하므로 체크포인터가
+    항상 필요하다 — checkpointer를 넘기지 않으면 프로세스 재시작에도 살아남지
+    못하는 InMemorySaver를 기본값으로 쓴다(CLI/테스트 등 1회성 실행용).
+    실제 API는 AsyncSqliteSaver를 명시적으로 넘겨 재개 가능하게 한다.
     """
     graph = StateGraph(RefundAgentState)
 
@@ -58,4 +66,4 @@ def build_graph(
     graph.add_edge("finalize", END)
     graph.add_edge("flag_for_human", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer or InMemorySaver())

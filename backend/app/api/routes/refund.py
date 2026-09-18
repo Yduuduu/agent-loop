@@ -9,8 +9,12 @@ from sqlalchemy import select
 from app.agents.refund_agent.state import initial_state
 from app.api import event_bus
 from app.api.deps import GraphBuilderDep, SessionDep
-from app.api.refund_runner import run_case
-from app.api.schemas.refund import RefundCaseStatusResponse, RefundRequestCreateResponse
+from app.api.refund_runner import resume_case, run_case
+from app.api.schemas.refund import (
+    RefundCaseStatusResponse,
+    RefundRequestCreateResponse,
+    RefundResumeRequest,
+)
 from app.core.config import get_settings
 from app.db.models import RefundCase, RefundDecision
 
@@ -50,6 +54,50 @@ async def create_refund_request(
     return RefundRequestCreateResponse(case_id=case.case_id)
 
 
+@router.get("", response_model=list[RefundCaseStatusResponse])
+async def list_refund_requests(
+    session: SessionDep, status: str | None = None
+) -> list[RefundCaseStatusResponse]:
+    query = select(RefundCase)
+    if status is not None:
+        query = query.where(RefundCase.status == status)
+    query = query.order_by(RefundCase.created_at.desc())
+
+    cases = (await session.scalars(query)).all()
+    responses = []
+    for case in cases:
+        decision = await session.scalar(
+            select(RefundDecision).where(RefundDecision.case_id == case.case_id)
+        )
+        responses.append(_to_status_response(case, decision))
+    return responses
+
+
+@router.post("/{case_id}/resume", response_model=RefundRequestCreateResponse)
+async def resume_refund_request(
+    case_id: str,
+    payload: RefundResumeRequest,
+    session: SessionDep,
+    build_graph: GraphBuilderDep,
+) -> RefundRequestCreateResponse:
+    case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
+    if case is None:
+        raise HTTPException(status_code=404, detail="case not found")
+    if case.status != "awaiting_human":
+        raise HTTPException(
+            status_code=409, detail=f"case is not awaiting human review (status={case.status})"
+        )
+
+    # 원래 SSE 연결은 이미 끊겼을 수 있으므로, resume은 GET .../stream으로 다시
+    # 연결해 이어지는 이벤트를 받을 수 있도록 새 큐를 연다(같은 case_id 재사용).
+    event_bus.create_queue(case_id)
+    task = asyncio.create_task(resume_case(case_id, build_graph, payload.model_dump()))
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+    return RefundRequestCreateResponse(case_id=case_id)
+
+
 @router.get("/{case_id}/stream")
 async def stream_refund_request(case_id: str, session: SessionDep) -> StreamingResponse:
     case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
@@ -82,15 +130,24 @@ async def get_refund_request(case_id: str, session: SessionDep) -> RefundCaseSta
         raise HTTPException(status_code=404, detail="case not found")
 
     decision = await session.scalar(select(RefundDecision).where(RefundDecision.case_id == case_id))
+    return _to_status_response(case, decision)
 
+
+def _to_status_response(
+    case: RefundCase, decision: RefundDecision | None
+) -> RefundCaseStatusResponse:
     return RefundCaseStatusResponse(
         case_id=case.case_id,
         order_id=case.order_id,
         status=case.status,
-        requires_human=decision.requires_human if decision else False,
+        # awaiting_human 상태는 interrupt() 한가운데라 RefundDecision이 아직
+        # 없으므로(재개 후에야 생김) case.status로도 사람 검토 필요 여부를 판단한다.
+        requires_human=case.status == "awaiting_human"
+        or (decision.requires_human if decision else False),
         decision=decision.decision if decision else None,
         decision_reason=decision.reason if decision else None,
         flagged_reason=case.flagged_reason,
+        refund_amount=case.refund_amount,
         awaiting_human_since=case.awaiting_human_since,
         created_at=case.created_at,
         updated_at=case.updated_at,

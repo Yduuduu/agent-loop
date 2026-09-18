@@ -78,6 +78,41 @@ API 통합 테스트(LLM fake, httpx 스트리밍):
 PYTHONPATH=. pytest tests/test_refund_api.py -v
 ```
 
+### HITL 일시정지/재개 (Phase 3)
+
+고액 환불 등으로 `flag_for_human`에 도달하면 LangGraph `interrupt()`가 실행을
+진짜로 멈추고 `AsyncSqliteSaver` 체크포인터(메인 DB와 같은 SQLite 파일)에
+영속화한다 — 백엔드 프로세스를 재시작해도 재개할 수 있다.
+
+```bash
+# 케이스가 고액이라 awaiting_human으로 멈췄다고 가정
+curl -N http://localhost:8000/api/refund-requests/<case_id>/stream
+# → ... event: awaiting_human (스트림은 여기서 끝남, 최종 판정 아직 없음)
+
+curl -X POST http://localhost:8000/api/refund-requests/<case_id>/resume \
+  -H "Content-Type: application/json" \
+  -d '{"action": "approve", "admin_note": "관리자 확인 후 승인"}'
+# → {"case_id": "..."} — 재개된 실행이 백그라운드에서 시작됨
+
+# resume 시점엔 원래 SSE 연결이 끊겨 있을 수 있으므로, 프론트는 resume 응답을
+# 받은 뒤 같은 스트림 엔드포인트에 새로 연결해 이어지는 이벤트를 본다.
+curl -N http://localhost:8000/api/refund-requests/<case_id>/stream
+# → event: decision (approve)
+
+curl "http://localhost:8000/api/refund-requests?status=awaiting_human"  # 관리자 대기열
+```
+
+resume 페이로드 계약: `{"action": "approve" | "reject" | "takeover", "admin_note": str | None, "admin_message": str | None}`.
+`approve`/`reject`는 `admin_note`를 사유로 쓰고, `takeover`(관리자 직접 개입)는
+그래프가 재추론하지 않고 `admin_message`가 곧바로 최종 사유가 되며 `decision`은
+`"resolved"`로 기록된다.
+
+체크포인터 영속성(프로세스 재시작 후 재개) + resume 3가지 경로(approve/reject/takeover) 테스트:
+
+```bash
+PYTHONPATH=. pytest tests/test_refund_agent.py tests/test_refund_api.py -v
+```
+
 ### Frontend
 
 ```bash

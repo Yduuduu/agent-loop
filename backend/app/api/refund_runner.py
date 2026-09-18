@@ -6,13 +6,22 @@
 노드는 고정 엣지(STATIC_NEXT)와, decision 이후에는 Phase 1이 노출한
 route_after_decision()을 그대로 재사용해 판단한다 — LangGraph 내부 이벤트에
 의존하지 않고 이 모듈이 직접 어댑터 역할을 한다.
+
+Phase 3: flag_for_human이 interrupt()로 실행을 진짜 중단하므로, 이 모듈은
+매 실행(최초 실행/재개 실행)마다 AsyncSqliteSaver 연결을 새로 열어 메인 DB와
+같은 SQLite 파일에 체크포인트를 영속화한다 — 프로세스가 재시작돼도 새 연결이
+같은 파일을 열면 중단 지점부터 재개할 수 있다(체크포인터 영속성).
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any
 
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 from sqlalchemy import select
 
+from app.agents.refund_agent.checkpointer import get_sqlite_checkpoint_path
 from app.agents.refund_agent.nodes import route_after_decision
 from app.agents.refund_agent.state import RefundAgentState
 from app.api import event_bus
@@ -32,22 +41,44 @@ TERMINAL_NODES = {"finalize", "flag_for_human"}
 
 
 async def run_case(case_id: str, build_graph: GraphBuilder, state: RefundAgentState) -> None:
-    async with async_session_factory() as session:
-        case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
-        assert case is not None
-        case.status = "in_progress"
-        await session.commit()
+    async with AsyncSqliteSaver.from_conn_string(get_sqlite_checkpoint_path()) as checkpointer:
+        graph = build_graph(checkpointer)
+        config = {"configurable": {"thread_id": case_id}}
+        await _set_status(case_id, "in_progress")
+        await _drive_graph(case_id, graph, state, config, first_node="order_lookup")
 
-    graph = build_graph()
-    state_acc: dict = dict(state)
+
+async def resume_case(case_id: str, build_graph: GraphBuilder, resume_payload: dict) -> None:
+    async with AsyncSqliteSaver.from_conn_string(get_sqlite_checkpoint_path()) as checkpointer:
+        graph = build_graph(checkpointer)
+        config = {"configurable": {"thread_id": case_id}}
+        await _set_status(case_id, "in_progress")
+        await _drive_graph(
+            case_id, graph, Command(resume=resume_payload), config, first_node="flag_for_human"
+        )
+
+
+async def _drive_graph(
+    case_id: str,
+    graph: CompiledStateGraph,
+    input_: Any,
+    config: dict,
+    *,
+    first_node: str,
+) -> None:
+    state_acc: dict = dict(input_) if isinstance(input_, dict) else {}
 
     try:
         await event_bus.publish(
             case_id,
-            SSEEvent(event=SSEEventType.NODE_START, case_id=case_id, data={"node": "order_lookup"}),
+            SSEEvent(event=SSEEventType.NODE_START, case_id=case_id, data={"node": first_node}),
         )
 
-        async for step in graph.astream(state, stream_mode="updates"):
+        async for step in graph.astream(input_, config=config, stream_mode="updates"):
+            if "__interrupt__" in step:
+                await _handle_interrupt(case_id, state_acc, step["__interrupt__"])
+                return
+
             for node_name, update in step.items():
                 state_acc.update(
                     {k: v for k, v in update.items() if k not in ("messages", "trace")}
@@ -113,18 +144,38 @@ def _next_node(completed_node: str, state_acc: dict) -> str | None:
     return STATIC_NEXT.get(completed_node)
 
 
-async def _persist_result(case_id: str, state_acc: dict) -> None:
-    status: Literal["completed", "awaiting_human"] = (
-        "awaiting_human" if state_acc.get("requires_human") else "completed"
+async def _handle_interrupt(case_id: str, state_acc: dict, interrupts: tuple) -> None:
+    payload = interrupts[0].value
+    await event_bus.publish(
+        case_id,
+        SSEEvent(
+            event=SSEEventType.AWAITING_HUMAN,
+            case_id=case_id,
+            data={
+                "reason": payload.get("reason"),
+                "suggested_decision": payload.get("suggested_decision"),
+            },
+        ),
     )
 
+    order_data = state_acc.get("order_data") or {}
     async with async_session_factory() as session:
         case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
         assert case is not None
-        case.status = status
-        if status == "awaiting_human":
-            case.flagged_reason = state_acc.get("decision_reason")
-            case.awaiting_human_since = datetime.utcnow()
+        case.status = "awaiting_human"
+        case.flagged_reason = payload.get("reason")
+        case.awaiting_human_since = datetime.utcnow()
+        case.refund_amount = order_data.get("total_amount")
+        await session.commit()
+
+
+async def _persist_result(case_id: str, state_acc: dict) -> None:
+    # flag_for_human은 이제 interrupt()를 거쳐야만 완료되므로(위의
+    # _handle_interrupt 경로), 여기 도달하는 시점엔 항상 최종 판정이 난 것이다.
+    async with async_session_factory() as session:
+        case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
+        assert case is not None
+        case.status = "completed"
 
         session.add(
             RefundDecision(
@@ -142,4 +193,12 @@ async def _persist_failure(case_id: str) -> None:
         case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
         assert case is not None
         case.status = "failed"
+        await session.commit()
+
+
+async def _set_status(case_id: str, status: str) -> None:
+    async with async_session_factory() as session:
+        case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
+        assert case is not None
+        case.status = status
         await session.commit()

@@ -1,7 +1,7 @@
-"""POST /api/refund-requests → GET /api/refund-requests/{case_id}/stream 통합 테스트.
+"""POST /api/refund-requests → GET .../stream → (필요 시) POST .../resume 통합 테스트.
 
 httpx.AsyncClient + ASGITransport로 실제 서버 없이 SSE 스트림을 수신한다.
-LLM은 fake로 치환해 네트워크 호출 없이 자동승인/자동거절 시나리오를 검증한다.
+LLM은 fake로 치환해 네트워크 호출 없이 자동승인/자동거절/HITL 시나리오를 검증한다.
 """
 
 import json
@@ -61,6 +61,20 @@ def make_fake_order_lookup(order_id: str, total_amount: float = 89.0):
     return fake_order_lookup
 
 
+def override_graph_builder(
+    *, order_id: str, total_amount: float = 89.0, decide=approve_decide
+) -> None:
+    app.dependency_overrides[get_graph_builder] = lambda: (
+        lambda checkpointer: build_graph(
+            order_lookup=make_fake_order_lookup(order_id, total_amount=total_amount),
+            assess_damage=damaged_assess,
+            search_policy=fake_search_policy,
+            decide=decide,
+            checkpointer=checkpointer,
+        )
+    )
+
+
 async def _collect_stream_events(client: httpx.AsyncClient, case_id: str) -> list[dict]:
     events: list[dict] = []
     async with client.stream("GET", f"/api/refund-requests/{case_id}/stream") as response:
@@ -85,14 +99,7 @@ async def client():
 
 
 async def test_auto_approve_scenario_streams_to_decision(client: httpx.AsyncClient) -> None:
-    app.dependency_overrides[get_graph_builder] = lambda: (
-        lambda: build_graph(
-            order_lookup=make_fake_order_lookup("ORD-1001"),
-            assess_damage=damaged_assess,
-            search_policy=fake_search_policy,
-            decide=approve_decide,
-        )
-    )
+    override_graph_builder(order_id="ORD-1001", decide=approve_decide)
 
     create_resp = await client.post(
         "/api/refund-requests",
@@ -118,14 +125,7 @@ async def test_auto_approve_scenario_streams_to_decision(client: httpx.AsyncClie
 
 
 async def test_auto_reject_scenario_streams_to_decision(client: httpx.AsyncClient) -> None:
-    app.dependency_overrides[get_graph_builder] = lambda: (
-        lambda: build_graph(
-            order_lookup=make_fake_order_lookup("ORD-1003"),
-            assess_damage=damaged_assess,
-            search_policy=fake_search_policy,
-            decide=reject_decide,
-        )
-    )
+    override_graph_builder(order_id="ORD-1003", decide=reject_decide)
 
     create_resp = await client.post(
         "/api/refund-requests",
@@ -142,15 +142,8 @@ async def test_auto_reject_scenario_streams_to_decision(client: httpx.AsyncClien
     assert status_resp.json()["status"] == "completed"
 
 
-async def test_high_value_order_ends_awaiting_human(client: httpx.AsyncClient) -> None:
-    app.dependency_overrides[get_graph_builder] = lambda: (
-        lambda: build_graph(
-            order_lookup=make_fake_order_lookup("ORD-1002", total_amount=650.0),
-            assess_damage=damaged_assess,
-            search_policy=fake_search_policy,
-            decide=approve_decide,
-        )
-    )
+async def test_high_value_order_pauses_awaiting_human(client: httpx.AsyncClient) -> None:
+    override_graph_builder(order_id="ORD-1002", total_amount=650.0, decide=approve_decide)
 
     create_resp = await client.post(
         "/api/refund-requests",
@@ -160,14 +153,101 @@ async def test_high_value_order_ends_awaiting_human(client: httpx.AsyncClient) -
 
     events = await _collect_stream_events(client, case_id)
 
-    assert events[-1]["event"] == "decision"
-    assert events[-1]["decision"] == "needs_human"
-    assert events[-1]["requires_human"] is True
+    assert events[-1]["event"] == "awaiting_human"
+    assert "고액" in events[-1]["reason"]
 
     status_resp = await client.get(f"/api/refund-requests/{case_id}")
     body = status_resp.json()
     assert body["status"] == "awaiting_human"
+    assert body["requires_human"] is True
     assert body["flagged_reason"] is not None
+    assert body["refund_amount"] == 650.0
+    assert body["decision"] is None  # 아직 최종 판정 없음(재개 전)
+
+
+async def test_resume_approve_completes_case(client: httpx.AsyncClient) -> None:
+    override_graph_builder(order_id="ORD-1002", total_amount=650.0, decide=approve_decide)
+
+    create_resp = await client.post(
+        "/api/refund-requests",
+        data={"order_id": "ORD-1002", "message": "고액 상품 환불 요청입니다."},
+    )
+    case_id = create_resp.json()["case_id"]
+    await _collect_stream_events(client, case_id)  # 첫 레그를 끝까지 소비(awaiting_human)
+
+    resume_resp = await client.post(
+        f"/api/refund-requests/{case_id}/resume",
+        json={"action": "approve", "admin_note": "관리자 확인 후 승인"},
+    )
+    assert resume_resp.status_code == 200
+    assert resume_resp.json()["case_id"] == case_id
+
+    events = await _collect_stream_events(client, case_id)
+    assert events[-1]["event"] == "decision"
+    assert events[-1]["decision"] == "approve"
+
+    status_resp = await client.get(f"/api/refund-requests/{case_id}")
+    body = status_resp.json()
+    assert body["status"] == "completed"
+    assert body["decision"] == "approve"
+    assert body["decision_reason"] == "관리자 확인 후 승인"
+
+
+async def test_resume_takeover_completes_case_with_resolved_decision(
+    client: httpx.AsyncClient,
+) -> None:
+    override_graph_builder(order_id="ORD-1002", total_amount=650.0, decide=approve_decide)
+
+    create_resp = await client.post(
+        "/api/refund-requests",
+        data={"order_id": "ORD-1002", "message": "고액 상품 환불 요청입니다."},
+    )
+    case_id = create_resp.json()["case_id"]
+    await _collect_stream_events(client, case_id)
+
+    resume_resp = await client.post(
+        f"/api/refund-requests/{case_id}/resume",
+        json={"action": "takeover", "admin_message": "고객과 협의해 부분 환불로 직접 처리함"},
+    )
+    assert resume_resp.status_code == 200
+    await _collect_stream_events(client, case_id)
+
+    status_resp = await client.get(f"/api/refund-requests/{case_id}")
+    body = status_resp.json()
+    assert body["status"] == "completed"
+    assert body["decision"] == "resolved"
+    assert body["decision_reason"] == "고객과 협의해 부분 환불로 직접 처리함"
+
+
+async def test_resume_rejected_when_case_not_awaiting_human(client: httpx.AsyncClient) -> None:
+    override_graph_builder(order_id="ORD-1001", decide=approve_decide)
+
+    create_resp = await client.post(
+        "/api/refund-requests",
+        data={"order_id": "ORD-1001", "message": "파손된 채로 도착했습니다."},
+    )
+    case_id = create_resp.json()["case_id"]
+    await _collect_stream_events(client, case_id)  # 자동 승인으로 completed까지 진행됨
+
+    resume_resp = await client.post(
+        f"/api/refund-requests/{case_id}/resume", json={"action": "approve"}
+    )
+    assert resume_resp.status_code == 409
+
+
+async def test_list_refund_requests_filters_by_status(client: httpx.AsyncClient) -> None:
+    override_graph_builder(order_id="ORD-1002", total_amount=650.0, decide=approve_decide)
+    create_resp = await client.post(
+        "/api/refund-requests",
+        data={"order_id": "ORD-1002", "message": "고액 상품 환불 요청입니다."},
+    )
+    case_id = create_resp.json()["case_id"]
+    await _collect_stream_events(client, case_id)
+
+    list_resp = await client.get("/api/refund-requests", params={"status": "awaiting_human"})
+    assert list_resp.status_code == 200
+    case_ids = [item["case_id"] for item in list_resp.json()]
+    assert case_id in case_ids
 
 
 async def test_order_not_found_emits_error_event(client: httpx.AsyncClient) -> None:
@@ -175,11 +255,12 @@ async def test_order_not_found_emits_error_event(client: httpx.AsyncClient) -> N
         return None
 
     app.dependency_overrides[get_graph_builder] = lambda: (
-        lambda: build_graph(
+        lambda checkpointer: build_graph(
             order_lookup=missing_order_lookup,
             assess_damage=damaged_assess,
             search_policy=fake_search_policy,
             decide=approve_decide,
+            checkpointer=checkpointer,
         )
     )
 

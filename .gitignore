@@ -11,6 +11,7 @@ venv/
 *.sqlite3
 backend/data/uploads/*
 !backend/data/uploads/.gitkeep
+backend/data/chroma/
 backend/chroma/
 .chroma/
 

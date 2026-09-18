@@ -31,6 +31,28 @@ uvicorn app.main:app --reload
 
 `GET http://localhost:8000/health` → `{"status": "ok"}`
 
+### RefundAgent 단독 실행 (Phase 1)
+
+DB 마이그레이션 → 목업 주문 시딩 → 정책 문서 인덱싱 → CLI 실행 순서로 진행한다.
+`.env`에 실제 `OPENAI_API_KEY`가 있어야 damage_assessment/decision 노드가 동작한다.
+
+```bash
+cd backend
+alembic upgrade head
+PYTHONPATH=. python scripts/seed_db.py            # backend/data/mock_orders.json 6건 적재
+PYTHONPATH=. python scripts/ingest_policy_docs.py  # backend/data/policy_docs/*.pdf → ChromaDB
+PYTHONPATH=. python scripts/run_agent_cli.py \
+  --order-id ORD-1001 \
+  --message "제품이 파손된 상태로 도착했습니다." \
+  --image mock_evidence/ord-1001-damage-1.jpg
+```
+
+5개 시나리오 pytest(LLM은 fake로 대체해 결정론적으로 검증):
+
+```bash
+PYTHONPATH=. pytest tests/test_refund_agent.py -v
+```
+
 ### Frontend
 
 ```bash

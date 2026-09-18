@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # 벡터 스토어
     chroma_persist_dir: str = "./data/chroma"
 
+    # 업로드 파일(환불 증빙 이미지) 로컬 저장 경로
+    upload_dir: str = "./data/uploads"
+
     # 관측성(Observability)
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""

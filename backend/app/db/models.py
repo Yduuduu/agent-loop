@@ -72,7 +72,9 @@ class RefundDecision(Base):
     case_id: Mapped[str] = mapped_column(ForeignKey("refund_cases.case_id"), unique=True)
     decision: Mapped[str] = mapped_column(String(32))
     reason: Mapped[str] = mapped_column(Text)
-    confidence: Mapped[float] = mapped_column(Float)
+    # RefundAgentState 고정 계약에 confidence가 없어 그래프 밖으로 전달되지 않는다.
+    # LLM 판정 confidence를 상태에 실어 보내는 것은 향후 phase 과제로 남겨둔다.
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     requires_human: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

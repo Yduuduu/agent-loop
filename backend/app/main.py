@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.routes.refund import router as refund_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 
@@ -22,6 +23,8 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    app.include_router(refund_router)
 
     return app
 

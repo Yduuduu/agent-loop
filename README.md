@@ -53,6 +53,31 @@ PYTHONPATH=. python scripts/run_agent_cli.py \
 PYTHONPATH=. pytest tests/test_refund_agent.py -v
 ```
 
+### FastAPI SSE 스트리밍 (Phase 2)
+
+RefundAgent 실행을 HTTP API로 감싼다. `POST`로 케이스를 만들면 즉시 백그라운드에서
+그래프 실행이 시작되고, `GET .../stream`에 연결하면 진행 상황이 SSE로 온다
+(`node_start` → `tool_call`/`node_end` 반복 → `decision`|`error`로 종료).
+
+```bash
+cd backend
+uvicorn app.main:app --reload
+
+# 다른 터미널에서
+curl -X POST http://localhost:8000/api/refund-requests \
+  -F "order_id=ORD-1001" -F "message=제품이 파손된 상태로 도착했습니다."
+# → {"case_id": "..."}
+
+curl -N http://localhost:8000/api/refund-requests/<case_id>/stream
+curl http://localhost:8000/api/refund-requests/<case_id>   # 상태 폴링(재연결용)
+```
+
+API 통합 테스트(LLM fake, httpx 스트리밍):
+
+```bash
+PYTHONPATH=. pytest tests/test_refund_api.py -v
+```
+
 ### Frontend
 
 ```bash

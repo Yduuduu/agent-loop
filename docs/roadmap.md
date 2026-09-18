@@ -175,9 +175,34 @@ agent-loop/
 
 ---
 
+## Phase 6.1 — 지식베이스 관리 페이지 고도화
+
+**Context**: Phase 6에서 업로드/인제스천 파이프라인과 문서 목록 조회까지 구축했다. 이번 Phase는 그 위에 문서 원문 열람, 적용 중인 정책 한눈에 보기 대시보드, 문서 삭제 기능을 추가하는 확장이다. Phase 6 완료 직후, Phase 6.2(보안 하드닝)보다 먼저 진행 가능(서로 독립적인 축의 작업).
+
+**Exit criteria 및 상세 태스크**: 별도 스펙 문서 [`docs/phase-6.1-kb-management.md`](./phase-6.1-kb-management.md) 참고 — Step 1~6 단위로 순차 구현 가능하게 나눠져 있음.
+
+---
+
+## Phase 6.2 — 로컬 보안 하드닝 (배포 전 필수)
+
+**Context**: Phase 0~6.1까지는 인증/인가 개념이 전혀 없다(`backend/app/main.py`는 CORS 미들웨어만 걸려 있고, 모든 라우트가 익명 접근 가능). Phase 7(AWS 배포)로 넘어가기 전에 이 상태로 외부에 노출하면 안 되므로, 로컬에서 검증 가능한 보안 항목을 별도 Phase로 분리해 먼저 처리한다. Phase 7 진행의 선행 조건으로 취급한다.
+
+**Exit criteria**: 관리자 라우트(환불 케이스 조회/resume, Phase 6.1에서 추가되는 지식베이스 업로드/삭제 라우트 포함)가 인증 없이는 401/403으로 차단됨을 통합 테스트로 검증. 업로드 계열 엔드포인트에 대한 입력 검증(파일 타입/크기/경로 조작) 테스트 통과. `.env`/시크릿이 저장소에 커밋되지 않았음을 재확인.
+
+**Tasks**:
+- **인증/인가 도입**: 관리자 전용 대시보드이므로 MVP는 단순 API 키 또는 세션 기반 인증 중 택1(멀티 관리자 권한 분리는 범위 밖으로 명시). FastAPI `Depends` 기반 인증 가드를 `app/api/deps.py`에 추가하고 모든 관리자 라우터(`refund`, `knowledge_base`)에 적용
+- **CORS 재점검**: 현재 `settings.cors_origins` 값이 배포 도메인 기준으로 좁혀져 있는지 확인, `allow_credentials=True`와 와일드카드 조합 금지 원칙 준수
+- **업로드 엔드포인트 하드닝**: 지식베이스 PDF 업로드(`backend/app/api/routes/knowledge_base.py`)의 파일 타입 검증이 확장자만 보는지 재검토(매직 바이트 검사 추가 여부 결정), 파일명 기반 경로 조작(path traversal) 방지 확인, 이미지 업로드(`refund.py:_save_uploads`)도 동일 기준 적용
+- **시크릿 관리 점검**: `.env`/`.env.example` 분리 상태 확인, `OPENAI_API_KEY`/`GOOGLE_API_KEY` 등이 로그에 노출되지 않는지 `core/logging.py` 점검
+- **Rate limiting**: 업로드/에이전트 실행처럼 비용이 드는 엔드포인트에 최소한의 요청 제한(예: `slowapi`) 적용 여부 결정 — MVP 관리자 도구 특성상 우선순위는 낮게 잡되 배포 전 결정 필요
+- **의존성 취약점 스캔**: 백엔드(`pip-audit` 등)/프론트엔드(`npm audit`) 1회 실행 및 결과 정리
+- `security-review` 스킬(또는 동등한 수동 체크리스트)로 이 시점까지의 변경분 전체 리뷰
+
+---
+
 ## Phase 7 (스트레치) — Docker화 + AWS 배포
 
-Phase 0~6이 로컬에서 검증된 뒤 진행. `backend`/`frontend` 개별 컨테이너화, `docker-compose.yml`로 Postgres+ChromaDB(영구 볼륨)+backend+frontend 통합, `DATABASE_URL`/`CHROMA_PERSIST_DIR`를 로컬 경로→컨테이너 서비스로 전환(Phase 0의 env-driven 설정 덕분에 값만 교체). 이후 AWS 배포: EC2/ECS(백엔드/프론트), S3(업로드 파일), RDS(Postgres), 벡터DB 운영 방식 결정. 이 Phase는 도달 시 별도 상세 스펙으로 분리.
+Phase 0~6.2가 로컬에서 검증된 뒤 진행(Phase 6.2의 인증/시크릿/업로드 하드닝이 선행 조건). `backend`/`frontend` 개별 컨테이너화, `docker-compose.yml`로 Postgres+ChromaDB(영구 볼륨)+backend+frontend 통합, `DATABASE_URL`/`CHROMA_PERSIST_DIR`를 로컬 경로→컨테이너 서비스로 전환(Phase 0의 env-driven 설정 덕분에 값만 교체). 이후 AWS 배포: EC2/ECS(백엔드/프론트), S3(업로드 파일), RDS(Postgres), 벡터DB 운영 방식 결정. 이 Phase는 도달 시 별도 상세 스펙으로 분리.
 
 ## Phase 8 (스트레치) — 향후 고도화
 

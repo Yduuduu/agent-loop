@@ -142,3 +142,23 @@ npm run dev
 cd frontend
 npm run test
 ```
+
+### HITL 관리자 제어 (Phase 5)
+
+`/refund-cases/[id]`가 케이스 상태에 따라 분기한다: `in_progress`는 뷰어만,
+`awaiting_human`은 뷰어 + `components/hitl/HitlPanel`(플래그 사유·환불액,
+승인/거절/직접개입), `completed`/`failed`는 뷰어 + 최종 요약. 이 요약은
+SSE(Zustand)가 아니라 React Query 폴링 데이터로 그리므로, 완료된 지 오래된
+케이스를 방금 눌러서 들어가도(라이브 스트림을 놓쳤어도) 항상 정확하다.
+
+- 승인은 바로 실행되고, 거절/직접개입은 되돌릴 수 없어 확인 단계를 거친다.
+- resume 성공 시 케이스 상세 페이지가 `AgentViewerStream`을 리마운트해 새 SSE
+  스트림에 재연결한다(같은 caseId로는 재연결 트리거가 안 되므로 `key`를 바꿔 강제).
+- `/dashboard`에 `awaiting_human_since` 오름차순(가장 오래 기다린 순) 대기열
+  섹션이 추가된다.
+- MVP 단순화: 다중 관리자 동시 처리 충돌 방지는 다루지 않는다(last-write-wins).
+
+```bash
+cd frontend
+npm run test    # HitlPanel/대기열 정렬 포함
+```

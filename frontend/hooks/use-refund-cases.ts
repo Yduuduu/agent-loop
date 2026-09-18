@@ -29,6 +29,8 @@ export function useRefundCases(status?: RefundCaseStatus) {
   return useQuery({
     queryKey: ["refund-cases", status ?? "all"],
     queryFn: () => listRefundRequests(status),
+    // 대시보드의 awaiting_human 대기열이 새 케이스를 빠르게 반영하도록 가볍게 폴링한다.
+    refetchInterval: 8000,
   });
 }
 

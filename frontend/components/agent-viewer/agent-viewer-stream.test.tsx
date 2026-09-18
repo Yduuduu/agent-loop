@@ -1,19 +1,35 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useRefundStreamStore } from "@/store/refund-stream-store";
 import { MockEventSource, mockEventSourceConstructor } from "@/test-utils/mock-event-source";
 
 import { AgentViewerStream } from "./agent-viewer-stream";
 
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+function withQueryClient(ui: React.ReactElement) {
+  return <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>;
+}
+
 beforeEach(() => {
   MockEventSource.reset();
   useRefundStreamStore.setState(useRefundStreamStore.getInitialState());
+  queryClient.clear();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({ ok: true, json: async () => ({}) })),
+  );
 });
 
 describe("AgentViewerStream", () => {
   it("renders the pipeline live as a mocked SSE event sequence arrives", () => {
-    render(<AgentViewerStream caseId="case-1" eventSourceImpl={mockEventSourceConstructor} />);
+    render(
+      withQueryClient(
+        <AgentViewerStream caseId="case-1" eventSourceImpl={mockEventSourceConstructor} />,
+      ),
+    );
 
     const source = MockEventSource.last();
 
@@ -56,7 +72,11 @@ describe("AgentViewerStream", () => {
   });
 
   it("shows an awaiting_human banner and stops without a final decision", () => {
-    render(<AgentViewerStream caseId="case-2" eventSourceImpl={mockEventSourceConstructor} />);
+    render(
+      withQueryClient(
+        <AgentViewerStream caseId="case-2" eventSourceImpl={mockEventSourceConstructor} />,
+      ),
+    );
     const source = MockEventSource.last();
 
     act(() =>
@@ -73,7 +93,11 @@ describe("AgentViewerStream", () => {
   });
 
   it("surfaces an application-level error event", () => {
-    render(<AgentViewerStream caseId="case-3" eventSourceImpl={mockEventSourceConstructor} />);
+    render(
+      withQueryClient(
+        <AgentViewerStream caseId="case-3" eventSourceImpl={mockEventSourceConstructor} />,
+      ),
+    );
     const source = MockEventSource.last();
 
     act(() =>
@@ -86,12 +110,18 @@ describe("AgentViewerStream", () => {
 
   it("ignores out-of-order events left over from a previous case", () => {
     const { rerender } = render(
-      <AgentViewerStream caseId="case-old" eventSourceImpl={mockEventSourceConstructor} />,
+      withQueryClient(
+        <AgentViewerStream caseId="case-old" eventSourceImpl={mockEventSourceConstructor} />,
+      ),
     );
     const oldSource = MockEventSource.last();
     act(() => oldSource.emit("node_start", { case_id: "case-old", node: "order_lookup" }));
 
-    rerender(<AgentViewerStream caseId="case-new" eventSourceImpl={mockEventSourceConstructor} />);
+    rerender(
+      withQueryClient(
+        <AgentViewerStream caseId="case-new" eventSourceImpl={mockEventSourceConstructor} />,
+      ),
+    );
 
     // 재연결 후에도 이전 소스로 뒤늦게 도착한 이벤트가 새 케이스 상태를 오염시키지 않는다.
     // (pending 단계도 "~하는 중" 라벨을 회색으로 보여주므로 텍스트가 아니라

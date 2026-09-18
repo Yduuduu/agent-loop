@@ -1,5 +1,6 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 import { connectRefundStream, type EventSourceConstructor } from "@/lib/sse-client";
@@ -18,10 +19,17 @@ export function AgentViewerStream({ caseId, eventSourceImpl }: AgentViewerStream
   const latestDecision = useRefundStreamStore((s) => s.latestDecision);
   const awaitingHuman = useRefundStreamStore((s) => s.awaitingHuman);
   const errorMessage = useRefundStreamStore((s) => s.errorMessage);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const store = useRefundStreamStore.getState();
     store.startStream(caseId);
+
+    // 종료성 이벤트가 오면 케이스 메타데이터(React Query)도 즉시 다시 불러온다.
+    // 4초 폴링만 믿으면 "최종 판정" 배너는 즉시 뜨는데 상단 "상태" 필드는
+    // 몇 초간 낡은 값(예: 처리 중)을 보여주는 어색한 텀이 생긴다.
+    const refetchCaseMetadata = () =>
+      queryClient.invalidateQueries({ queryKey: ["refund-case", caseId] });
 
     const disconnect = connectRefundStream(
       caseId,
@@ -33,14 +41,17 @@ export function AgentViewerStream({ caseId, eventSourceImpl }: AgentViewerStream
         onDecision: (data) => {
           useRefundStreamStore.getState().handleDecision(data);
           useRefundStreamStore.getState().handleConnectionClosed();
+          refetchCaseMetadata();
         },
         onAwaitingHuman: (data) => {
           useRefundStreamStore.getState().handleAwaitingHuman(data);
           useRefundStreamStore.getState().handleConnectionClosed();
+          refetchCaseMetadata();
         },
         onErrorEvent: (data) => {
           useRefundStreamStore.getState().handleErrorEvent(data);
           useRefundStreamStore.getState().handleConnectionClosed();
+          refetchCaseMetadata();
         },
         // 네이티브 EventSource가 자체적으로 재연결을 시도한다. 연결이 완전히
         // 끊기면 케이스 상세 페이지의 React Query 폴링(useRefundCase)이
@@ -50,7 +61,7 @@ export function AgentViewerStream({ caseId, eventSourceImpl }: AgentViewerStream
     );
 
     return disconnect;
-  }, [caseId, eventSourceImpl]);
+  }, [caseId, eventSourceImpl, queryClient]);
 
   return (
     <div className="flex flex-col gap-4">

@@ -3,11 +3,25 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --text-secondary: #52514e;
+  --surface-2: #f4f4f2;
+  --border-subtle: #e5e5e1;
+  --status-pending: #a8a7a0;
+  --status-progress: #2a78d6;
+  --status-good: #0ca30c;
+  --status-critical: #d03b3b;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-text-secondary: var(--text-secondary);
+  --color-surface-2: var(--surface-2);
+  --color-border-subtle: var(--border-subtle);
+  --color-status-pending: var(--status-pending);
+  --color-status-progress: var(--status-progress);
+  --color-status-good: var(--status-good);
+  --color-status-critical: var(--status-critical);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -16,6 +30,10 @@
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --text-secondary: #c3c2b7;
+    --surface-2: #1a1a19;
+    --border-subtle: #2c2c2a;
+    --status-progress: #3987e5;
   }
 }
 

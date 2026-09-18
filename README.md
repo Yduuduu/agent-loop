@@ -118,7 +118,27 @@ PYTHONPATH=. pytest tests/test_refund_agent.py tests/test_refund_api.py -v
 ```bash
 cd frontend
 npm install
+cp .env.example .env.local   # NEXT_PUBLIC_API_BASE_URL, 기본값 http://localhost:8000
 npm run dev
 ```
 
-`http://localhost:3000`
+`http://localhost:3000` → `/dashboard`로 리다이렉트.
+
+### SSE 실시간 추론 뷰어 (Phase 4)
+
+백엔드(`uvicorn app.main:app --reload`)를 먼저 띄운 상태에서:
+
+1. `/dashboard` — 전체 케이스 목록(React Query 폴링)
+2. `/refund-cases` — 신규 환불 요청 제출 폼(수동 테스트용, mock_orders.json의 order_id 사용)
+3. 제출하면 `/refund-cases/[case_id]`로 이동 — 네이티브 `EventSource`(`lib/sse-client.ts`)로
+   스트림에 연결해 `node_start`/`tool_call`/`node_end`/`decision`/`awaiting_human`/`error`를
+   Zustand 스토어(`store/refund-stream-store.ts`)에 반영, 파이프라인 단계별 진행 상황을
+   실시간 렌더링한다(`components/agent-viewer/`). SSE 연결이 끊기면 케이스 상세의
+   React Query 폴링(`useRefundCase`)이 상태의 최종 진실 소스 역할을 한다.
+
+모의 EventSource 이벤트 시퀀스로 스토어/컴포넌트 테스트(Vitest):
+
+```bash
+cd frontend
+npm run test
+```

@@ -21,14 +21,14 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from sqlalchemy import select
 
-from app.agents.refund_agent.checkpointer import get_sqlite_checkpoint_path
+from app.agents.refund_agent import checkpointer as checkpointer_module
 from app.agents.refund_agent.nodes import route_after_decision
 from app.agents.refund_agent.state import RefundAgentState
 from app.api import event_bus
 from app.api.deps import GraphBuilder
 from app.api.schemas.sse_events import SSEEvent, SSEEventType
+from app.db import session as db_session
 from app.db.models import RefundCase, RefundDecision
-from app.db.session import async_session_factory
 
 STATIC_NEXT: dict[str, str] = {
     "order_lookup": "damage_assessment",
@@ -41,7 +41,8 @@ TERMINAL_NODES = {"finalize", "flag_for_human"}
 
 
 async def run_case(case_id: str, build_graph: GraphBuilder, state: RefundAgentState) -> None:
-    async with AsyncSqliteSaver.from_conn_string(get_sqlite_checkpoint_path()) as checkpointer:
+    checkpoint_path = checkpointer_module.get_sqlite_checkpoint_path()
+    async with AsyncSqliteSaver.from_conn_string(checkpoint_path) as checkpointer:
         graph = build_graph(checkpointer)
         config = {"configurable": {"thread_id": case_id}}
         await _set_status(case_id, "in_progress")
@@ -49,7 +50,8 @@ async def run_case(case_id: str, build_graph: GraphBuilder, state: RefundAgentSt
 
 
 async def resume_case(case_id: str, build_graph: GraphBuilder, resume_payload: dict) -> None:
-    async with AsyncSqliteSaver.from_conn_string(get_sqlite_checkpoint_path()) as checkpointer:
+    checkpoint_path = checkpointer_module.get_sqlite_checkpoint_path()
+    async with AsyncSqliteSaver.from_conn_string(checkpoint_path) as checkpointer:
         graph = build_graph(checkpointer)
         config = {"configurable": {"thread_id": case_id}}
         await _set_status(case_id, "in_progress")
@@ -159,7 +161,7 @@ async def _handle_interrupt(case_id: str, state_acc: dict, interrupts: tuple) ->
     )
 
     order_data = state_acc.get("order_data") or {}
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
         assert case is not None
         case.status = "awaiting_human"
@@ -172,7 +174,7 @@ async def _handle_interrupt(case_id: str, state_acc: dict, interrupts: tuple) ->
 async def _persist_result(case_id: str, state_acc: dict) -> None:
     # flag_for_human은 이제 interrupt()를 거쳐야만 완료되므로(위의
     # _handle_interrupt 경로), 여기 도달하는 시점엔 항상 최종 판정이 난 것이다.
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
         assert case is not None
         case.status = "completed"
@@ -189,7 +191,7 @@ async def _persist_result(case_id: str, state_acc: dict) -> None:
 
 
 async def _persist_failure(case_id: str) -> None:
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
         assert case is not None
         case.status = "failed"
@@ -197,7 +199,7 @@ async def _persist_failure(case_id: str) -> None:
 
 
 async def _set_status(case_id: str, status: str) -> None:
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         case = await session.scalar(select(RefundCase).where(RefundCase.case_id == case_id))
         assert case is not None
         case.status = status

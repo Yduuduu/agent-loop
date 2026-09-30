@@ -11,8 +11,8 @@ from sqlalchemy import select
 from app.api import event_bus
 from app.api.deps import VectorstoreBuilder
 from app.api.schemas.kb_events import KBEvent, KBEventType
+from app.db import session as db_session
 from app.db.models import PolicyDocument
-from app.db.session import async_session_factory
 from app.rag.ingest import extract_pdf_text, ingest_pdf
 from app.rag.policy_summarizer import SummarizeFn
 
@@ -77,7 +77,7 @@ async def run_policy_summarization(doc_id: str, pdf_path: Path, summarize: Summa
 async def _persist(
     doc_id: str, *, status: str, progress_pct: int | None, chunk_count: int | None
 ) -> None:
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         doc = await session.scalar(select(PolicyDocument).where(PolicyDocument.doc_id == doc_id))
         assert doc is not None
         doc.status = status
@@ -89,7 +89,7 @@ async def _persist(
 
 
 async def _persist_policy_summary_status(doc_id: str, status: str) -> None:
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         doc = await session.scalar(select(PolicyDocument).where(PolicyDocument.doc_id == doc_id))
         assert doc is not None
         doc.policy_summary_status = status
@@ -97,7 +97,7 @@ async def _persist_policy_summary_status(doc_id: str, status: str) -> None:
 
 
 async def _persist_policy_summary(doc_id: str, *, status: str, summary: list[dict]) -> None:
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         doc = await session.scalar(select(PolicyDocument).where(PolicyDocument.doc_id == doc_id))
         assert doc is not None
         doc.policy_summary_status = status

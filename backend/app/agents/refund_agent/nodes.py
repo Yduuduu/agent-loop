@@ -21,7 +21,7 @@ from app.agents.refund_agent.prompts import (
 from app.agents.refund_agent.schemas import DamageAssessment, Decision
 from app.agents.refund_agent.state import RefundAgentState
 from app.core.config import get_settings
-from app.db.session import async_session_factory
+from app.db import session as db_session
 from app.tools.order_lookup import lookup_order
 from app.tools.policy_rag_search import search_policy
 
@@ -37,7 +37,7 @@ NowFn = Callable[[], date]
 
 
 async def default_order_lookup(order_id: str) -> dict | None:
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         return await lookup_order(session, order_id)
 
 

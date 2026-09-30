@@ -21,8 +21,8 @@ from sqlalchemy import select
 
 from app.api.deps import get_policy_summarizer, get_vectorstore_builder
 from app.core.config import get_settings
+from app.db import session as db_session
 from app.db.models import PolicyDocument
-from app.db.session import async_session_factory
 from app.main import app
 from app.rag.policy_summarizer import PolicyItem
 from app.rag.retriever import search_policy_chunks
@@ -39,6 +39,7 @@ FAKE_POLICY_ITEMS = [
 
 async def fake_summarize(_document_text: str) -> list[PolicyItem]:
     return FAKE_POLICY_ITEMS
+
 
 FONT_NAME = "HYSMyeongJo-Medium"
 
@@ -66,7 +67,7 @@ def test_vectorstore():
 
 @pytest.fixture
 async def client(test_vectorstore):
-    app.dependency_overrides[get_vectorstore_builder] = lambda: (lambda: test_vectorstore)
+    app.dependency_overrides[get_vectorstore_builder] = lambda: lambda: test_vectorstore
     app.dependency_overrides[get_policy_summarizer] = lambda: fake_summarize
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
@@ -255,7 +256,7 @@ async def test_delete_document_in_progress_returns_409(
     doc_id = resp.json()["doc_id"]
     await _collect_stream_events(client, doc_id)  # 인제스천 완료까지 대기 후
 
-    async with async_session_factory() as session:
+    async with db_session.async_session_factory() as session:
         doc = await session.scalar(select(PolicyDocument).where(PolicyDocument.doc_id == doc_id))
         assert doc is not None
         doc.status = "chunking"  # 비종료 상태로 강제 고정

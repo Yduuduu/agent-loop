@@ -5,6 +5,7 @@ LLM은 fake로 치환해 네트워크 호출 없이 자동승인/자동거절/HI
 """
 
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -12,6 +13,7 @@ import pytest
 from app.agents.refund_agent.graph import build_graph
 from app.agents.refund_agent.schemas import DamageAssessment, Decision
 from app.api.deps import get_graph_builder
+from app.core.config import get_settings
 from app.main import app
 
 
@@ -280,3 +282,41 @@ async def test_order_not_found_emits_error_event(client: httpx.AsyncClient) -> N
 async def test_unknown_case_returns_404(client: httpx.AsyncClient) -> None:
     resp = await client.get("/api/refund-requests/does-not-exist")
     assert resp.status_code == 404
+
+
+async def test_rejects_image_with_disallowed_extension(client: httpx.AsyncClient) -> None:
+    resp = await client.post(
+        "/api/refund-requests",
+        data={"order_id": "ORD-1001", "message": "환불해주세요"},
+        files={"images": ("evidence.exe", b"not an image", "application/octet-stream")},
+    )
+    assert resp.status_code == 400
+
+
+async def test_rejects_image_with_mismatched_content(client: httpx.AsyncClient) -> None:
+    resp = await client.post(
+        "/api/refund-requests",
+        data={"order_id": "ORD-1001", "message": "환불해주세요"},
+        files={"images": ("evidence.png", b"this is not actually a png", "image/png")},
+    )
+    assert resp.status_code == 400
+
+
+async def test_sanitizes_path_traversal_in_image_filename(client: httpx.AsyncClient) -> None:
+    override_graph_builder(order_id="ORD-1001", decide=approve_decide)
+    png_bytes = b"\x89PNG\r\n\x1a\n" + b"0" * 16
+
+    create_resp = await client.post(
+        "/api/refund-requests",
+        data={"order_id": "ORD-1001", "message": "파손됐어요"},
+        files={"images": ("../../../../etc/evil.png", png_bytes, "image/png")},
+    )
+    assert create_resp.status_code == 200
+    case_id = create_resp.json()["case_id"]
+    await _collect_stream_events(client, case_id)
+
+    upload_root = get_settings().upload_dir
+    written_files = list(Path(upload_root).rglob("evil.png"))
+    assert len(written_files) == 1
+    # upload_dir 바로 아래(case_id 폴더 안)에만 있어야 하고, 그 밖으로는 못 나간다.
+    assert written_files[0].parent == Path(upload_root) / case_id

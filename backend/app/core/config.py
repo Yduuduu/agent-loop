@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # 관리자 라우트(HTTP Basic) — 비워두면 인증이 미설정된 것으로 간주해
+    # require_admin_auth가 모든 요청을 500으로 거부한다(fail-closed).
+    admin_username: str = ""
+    admin_password: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -187,6 +187,38 @@ async def test_rejects_empty_pdf_upload(client: httpx.AsyncClient) -> None:
     assert resp.status_code == 400
 
 
+async def test_rejects_pdf_extension_with_non_pdf_content(client: httpx.AsyncClient) -> None:
+    resp = await client.post(
+        "/api/knowledge-base/documents",
+        files={"file": ("fake.pdf", b"this is not a real pdf", "application/pdf")},
+    )
+    assert resp.status_code == 400
+
+
+async def test_sanitizes_path_traversal_in_upload_filename(
+    client: httpx.AsyncClient, tmp_path: Path
+) -> None:
+    pdf_path = tmp_path / "evil.pdf"
+    make_test_pdf(pdf_path, lines=["경로 조작 테스트."])
+
+    with pdf_path.open("rb") as f:
+        resp = await client.post(
+            "/api/knowledge-base/documents",
+            files={"file": ("../../../../etc/evil.pdf", f, "application/pdf")},
+        )
+    assert resp.status_code == 200
+    doc_id = resp.json()["doc_id"]
+    await _collect_stream_events(client, doc_id)
+
+    body = (await client.get(f"/api/knowledge-base/documents/{doc_id}")).json()
+    assert body["filename"] == "evil.pdf"
+
+    stored_dir = Path(get_settings().policy_docs_dir)
+    matches = list(stored_dir.glob(f"{doc_id}-*"))
+    assert len(matches) == 1
+    assert matches[0].parent == stored_dir
+
+
 async def test_unknown_document_returns_404(client: httpx.AsyncClient) -> None:
     resp = await client.get("/api/knowledge-base/documents/does-not-exist")
     assert resp.status_code == 404

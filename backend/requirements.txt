@@ -6,7 +6,7 @@ langchain==1.4.1
 langgraph==1.2.11
 langgraph-checkpoint-sqlite==3.1.1
 langchain-google-genai==4.4.0
-langchain-text-splitters==1.0.0
+langchain-text-splitters==1.1.2
 langchain-chroma==0.2.6
 chromadb==1.5.9
 pypdf==6.19.0

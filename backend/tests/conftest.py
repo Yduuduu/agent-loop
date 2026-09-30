@@ -21,13 +21,20 @@ import pytest
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.agents.refund_agent import checkpointer as checkpointer_module
+from app.api.deps import require_admin_auth
 from app.core.config import get_settings
 from app.db import models  # noqa: F401 — Base.metadata에 테이블을 등록시키기 위한 임포트
 from app.db import session as db_session
+from app.main import app
 
 
 @pytest.fixture(autouse=True)
 async def isolated_test_db(monkeypatch: pytest.MonkeyPatch):
+    # Phase 6.2: 관리자 라우터는 HTTP Basic 인증이 걸려 있다. 통합 테스트는
+    # 인증 로직 자체가 아니라 그 뒤의 비즈니스 로직을 검증하는 게 목적이므로
+    # 기본적으로 우회한다 — 인증 자체는 tests/test_admin_auth.py에서 별도 검증.
+    app.dependency_overrides[require_admin_auth] = lambda: None
+
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
         test_engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
@@ -54,3 +61,4 @@ async def isolated_test_db(monkeypatch: pytest.MonkeyPatch):
             yield
         finally:
             await test_engine.dispose()
+            app.dependency_overrides.pop(require_admin_auth, None)

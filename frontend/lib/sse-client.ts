@@ -27,7 +27,10 @@ export interface RefundStreamHandlers {
 const TERMINAL_EVENT_TYPES: SSEEventType[] = ["decision", "error", "awaiting_human"];
 
 export type MinimalEventSource = Pick<EventSource, "addEventListener" | "close">;
-export type EventSourceConstructor = new (url: string) => MinimalEventSource;
+export type EventSourceConstructor = new (
+  url: string,
+  eventSourceInitDict?: EventSourceInit,
+) => MinimalEventSource;
 
 /**
  * 케이스 SSE 스트림에 연결한다. 반환된 함수를 호출하면 연결을 정리한다
@@ -40,7 +43,9 @@ export function connectRefundStream(
 ): () => void {
   const EventSourceImpl =
     options?.EventSourceImpl ?? (EventSource as unknown as EventSourceConstructor);
-  const source = new EventSourceImpl(refundStreamUrl(caseId));
+  // Phase 6.2: 백엔드가 별도 origin에서 HTTP Basic 인증을 요구하므로, 브라우저가
+  // 캐시해둔 인증 정보를 실어 보내려면 withCredentials가 필요하다.
+  const source = new EventSourceImpl(refundStreamUrl(caseId), { withCredentials: true });
 
   const listen = <T>(type: SSEEventType, handler?: (data: T) => void) => {
     source.addEventListener(type, (event) => {

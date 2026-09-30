@@ -2,13 +2,13 @@ import asyncio
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.agents.refund_agent.state import initial_state
 from app.api import event_bus
-from app.api.deps import GraphBuilderDep, SessionDep
+from app.api.deps import GraphBuilderDep, SessionDep, require_admin_auth
 from app.api.refund_runner import resume_case, run_case
 from app.api.schemas.refund import (
     RefundCaseStatusResponse,
@@ -16,9 +16,14 @@ from app.api.schemas.refund import (
     RefundResumeRequest,
 )
 from app.core.config import get_settings
+from app.core.security import sanitize_filename
 from app.db.models import RefundCase, RefundDecision
 
-router = APIRouter(prefix="/api/refund-requests", tags=["refund-requests"])
+router = APIRouter(
+    prefix="/api/refund-requests",
+    tags=["refund-requests"],
+    dependencies=[Depends(require_admin_auth)],
+)
 
 # fire-and-forget 백그라운드 태스크가 GC되지 않도록 강한 참조를 유지한다.
 _background_tasks: set[asyncio.Task] = set()
@@ -26,6 +31,23 @@ _background_tasks: set[asyncio.Task] = set()
 OrderIdForm = Annotated[str, Form()]
 MessageForm = Annotated[str, Form()]
 ImagesForm = Annotated[list[UploadFile], File()]
+
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
+ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+# 각 포맷의 매직 바이트 시그니처. WEBP는 RIFF 컨테이너 뒤에 "WEBP"가 오므로
+# 별도로 확인한다(아래 _looks_like_image).
+IMAGE_MAGIC_PREFIXES = (
+    b"\xff\xd8\xff",  # JPEG
+    b"\x89PNG\r\n\x1a\n",  # PNG
+    b"GIF87a",
+    b"GIF89a",
+)
+
+
+def _looks_like_image(content: bytes) -> bool:
+    if content.startswith(IMAGE_MAGIC_PREFIXES):
+        return True
+    return content[:4] == b"RIFF" and content[8:12] == b"WEBP"
 
 
 @router.post("", response_model=RefundRequestCreateResponse)
@@ -166,8 +188,24 @@ async def _save_uploads(case_id: str, images: list[UploadFile]) -> list[str]:
     for image in images:
         if not image.filename:
             continue
-        dest = upload_dir / image.filename
-        dest.write_bytes(await image.read())
+
+        safe_filename = sanitize_filename(image.filename)
+        extension = Path(safe_filename).suffix.lower() if safe_filename else ""
+        if not safe_filename or extension not in ALLOWED_IMAGE_EXTENSIONS:
+            raise HTTPException(
+                status_code=400, detail=f"지원하지 않는 이미지 파일입니다: {image.filename}"
+            )
+
+        content = await image.read()
+        if len(content) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=400, detail="이미지 파일이 너무 큽니다 (최대 10MB)")
+        if not _looks_like_image(content):
+            raise HTTPException(
+                status_code=400, detail=f"유효한 이미지 파일이 아닙니다: {image.filename}"
+            )
+
+        dest = upload_dir / safe_filename
+        dest.write_bytes(content)
         refs.append(str(dest.relative_to(Path(settings.upload_dir).parent)))
 
     return refs

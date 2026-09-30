@@ -11,6 +11,22 @@ import type {
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:8000";
 
+// 백엔드는 프론트와 다른 origin(Phase 6.2: HTTP Basic 인증)이라, fetch 기본
+// credentials 모드("same-origin")로는 브라우저가 캐시해둔 인증 정보를 담아
+// 보내지 않는다 — 모든 요청에 명시적으로 "include"를 지정해야 한다.
+//
+// X-Requested-With 헤더는 CSRF 방지용이다(백엔드 app/api/deps.py의
+// require_admin_auth 참고) — 일반 HTML <form> 제출로는 이 커스텀 헤더를
+// 붙일 수 없으므로, 상태를 바꾸는 요청(POST/DELETE 등)에 이 헤더가 없으면
+// 백엔드가 거부한다. 모든 요청에 붙여도 안전하므로 통일한다.
+function apiFetch(input: string | URL, init: RequestInit = {}): Promise<Response> {
+  return fetch(input, {
+    ...init,
+    credentials: "include",
+    headers: { ...init.headers, "X-Requested-With": "XMLHttpRequest" },
+  });
+}
+
 async function parseOrThrow<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const body = await response.text();
@@ -31,7 +47,7 @@ export async function createRefundRequest(input: {
     form.append("images", image);
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/refund-requests`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/refund-requests`, {
     method: "POST",
     body: form,
   });
@@ -39,7 +55,7 @@ export async function createRefundRequest(input: {
 }
 
 export async function getRefundRequest(caseId: string): Promise<RefundCaseStatusResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/refund-requests/${caseId}`);
+  const response = await apiFetch(`${API_BASE_URL}/api/refund-requests/${caseId}`);
   return parseOrThrow(response);
 }
 
@@ -49,7 +65,7 @@ export async function listRefundRequests(
   const url = new URL(`${API_BASE_URL}/api/refund-requests`);
   if (status) url.searchParams.set("status", status);
 
-  const response = await fetch(url);
+  const response = await apiFetch(url);
   return parseOrThrow(response);
 }
 
@@ -57,7 +73,7 @@ export async function resumeRefundRequest(
   caseId: string,
   payload: RefundResumeRequest,
 ): Promise<RefundRequestCreateResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/refund-requests/${caseId}/resume`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/refund-requests/${caseId}/resume`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -73,7 +89,7 @@ export async function uploadKbDocument(file: File): Promise<KBDocumentCreateResp
   const form = new FormData();
   form.set("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/documents`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge-base/documents`, {
     method: "POST",
     body: form,
   });
@@ -81,12 +97,12 @@ export async function uploadKbDocument(file: File): Promise<KBDocumentCreateResp
 }
 
 export async function listKbDocuments(): Promise<KBDocumentResponse[]> {
-  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/documents`);
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge-base/documents`);
   return parseOrThrow(response);
 }
 
 export async function getKbDocument(docId: string): Promise<KBDocumentResponse> {
-  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/documents/${docId}`);
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge-base/documents/${docId}`);
   return parseOrThrow(response);
 }
 
@@ -99,7 +115,7 @@ export function kbDocumentFileUrl(docId: string): string {
 }
 
 export async function deleteKbDocument(docId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/documents/${docId}`, {
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge-base/documents/${docId}`, {
     method: "DELETE",
   });
   if (!response.ok) {
@@ -109,6 +125,6 @@ export async function deleteKbDocument(docId: string): Promise<void> {
 }
 
 export async function listKbPolicies(): Promise<PolicyGroup[]> {
-  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/policies`);
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge-base/policies`);
   return parseOrThrow(response);
 }

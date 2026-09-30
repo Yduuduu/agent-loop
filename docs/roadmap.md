@@ -189,14 +189,15 @@ agent-loop/
 
 **Exit criteria**: 관리자 라우트(환불 케이스 조회/resume, Phase 6.1에서 추가되는 지식베이스 업로드/삭제 라우트 포함)가 인증 없이는 401/403으로 차단됨을 통합 테스트로 검증. 업로드 계열 엔드포인트에 대한 입력 검증(파일 타입/크기/경로 조작) 테스트 통과. `.env`/시크릿이 저장소에 커밋되지 않았음을 재확인.
 
-**Tasks**:
-- **인증/인가 도입**: 관리자 전용 대시보드이므로 MVP는 단순 API 키 또는 세션 기반 인증 중 택1(멀티 관리자 권한 분리는 범위 밖으로 명시). FastAPI `Depends` 기반 인증 가드를 `app/api/deps.py`에 추가하고 모든 관리자 라우터(`refund`, `knowledge_base`)에 적용
-- **CORS 재점검**: 현재 `settings.cors_origins` 값이 배포 도메인 기준으로 좁혀져 있는지 확인, `allow_credentials=True`와 와일드카드 조합 금지 원칙 준수
-- **업로드 엔드포인트 하드닝**: 지식베이스 PDF 업로드(`backend/app/api/routes/knowledge_base.py`)의 파일 타입 검증이 확장자만 보는지 재검토(매직 바이트 검사 추가 여부 결정), 파일명 기반 경로 조작(path traversal) 방지 확인, 이미지 업로드(`refund.py:_save_uploads`)도 동일 기준 적용
-- **시크릿 관리 점검**: `.env`/`.env.example` 분리 상태 확인, `OPENAI_API_KEY`/`GOOGLE_API_KEY` 등이 로그에 노출되지 않는지 `core/logging.py` 점검
-- **Rate limiting**: 업로드/에이전트 실행처럼 비용이 드는 엔드포인트에 최소한의 요청 제한(예: `slowapi`) 적용 여부 결정 — MVP 관리자 도구 특성상 우선순위는 낮게 잡되 배포 전 결정 필요
-- **의존성 취약점 스캔**: 백엔드(`pip-audit` 등)/프론트엔드(`npm audit`) 1회 실행 및 결과 정리
-- `security-review` 스킬(또는 동등한 수동 체크리스트)로 이 시점까지의 변경분 전체 리뷰
+**Tasks (완료, 구현 결과)**:
+- **인증/인가 도입 — 완료**: HTTP Basic Auth 선택(1인 관리자 도구라 로그인 페이지 없이 브라우저 네이티브 인증창으로 충분). `app/api/deps.py`의 `require_admin_auth`(`ADMIN_USERNAME`/`ADMIN_PASSWORD` 비교, `secrets.compare_digest` 사용)를 `refund`/`knowledge_base` 라우터 전체에 `dependencies=[Depends(...)]`로 적용. 자격증명 미설정 시 401이 아니라 500으로 fail-closed. 프론트는 별도 로그인 UI 없이 모든 `fetch`에 `credentials: "include"`, `EventSource`에 `withCredentials: true`를 추가해 브라우저가 캐시한 인증정보가 cross-origin으로도 전달되게 함. `tests/test_admin_auth.py`로 검증.
+  - **후속 발견(security-review 스킬) 및 수정 — CSRF**: HTTP Basic 인증정보는 쿠키처럼 브라우저가 origin 단위로 캐시해뒀다가 어느 페이지가 요청했든 자동 재첨부한다 — 즉 인증을 붙인 순간 CSRF가 실질적 위협이 된다(예: 일반 HTML `<form>`으로 `POST /api/refund-requests`를 외부 페이지에서 자동 제출해도 브라우저가 관리자의 캐시된 인증정보를 실어 보냄). `require_admin_auth`에 상태 변경 메서드(POST/PUT/PATCH/DELETE) 한정으로 `X-Requested-With: XMLHttpRequest` 커스텀 헤더 요구를 추가 — 일반 form은 이 헤더를 못 붙이고, 커스텀 헤더가 있으면 브라우저가 CORS 프리플라이트를 강제하므로 origin 허용목록이 실질적 방어선이 된다. 프론트 `apiFetch`가 모든 요청에 이 헤더를 자동으로 붙임. `curl`로 직접 재현: 헤더 없는 form 스타일 POST는 403, 있으면 통과함을 확인.
+- **CORS 재점검 — 완료, 변경 불필요**: `allow_origins`가 이미 특정 도메인으로 좁혀져 있고, Starlette `CORSMiddleware`는 `allow_headers=["*"]`여도 preflight 요청 헤더를 그대로 echo하므로 `Authorization` 헤더도 정상 허용됨을 직접 검증(OPTIONS 프리플라이트 테스트).
+- **업로드 엔드포인트 하드닝 — 완료**: `app/core/security.sanitize_filename()`으로 지식베이스 PDF/환불 증빙 이미지 업로드 양쪽에 경로 조작(path traversal) 방지 적용. PDF는 `%PDF-` 매직 바이트, 이미지는 JPEG/PNG/GIF/WEBP 매직 바이트 + 확장자 화이트리스트 + 10MB 크기 제한 추가(기존엔 검증이 전혀 없었음). 테스트로 회귀 검증.
+- **시크릿 관리 점검 — 완료, 문제 없음 확인**: `.env`가 git에 추적되지 않고 `.env.example`엔 실제 값이 없음을 재확인. `core/logging.py`는 단순 포맷 설정뿐이라 시크릿을 로그에 남기지 않음.
+- **Rate limiting — 결정: 이번 Phase에서는 구현하지 않음**. 이유: 이제 모든 관리자 라우트가 인증 뒤에 있어 공개 노출 리스크가 사라졌고, 1인 관리자 도구라 동시 요청 남용 시나리오가 낮음. Phase 7 배포 시 실제 인프라(리버스 프록시 등)에서 재검토하는 것으로 미룸.
+- **의존성 취약점 스캔 — 완료**: `pip-audit` 8건(3개 패키지) 발견 — `langchain-text-splitters`(SSRF 이슈, `split_text_from_url()` 미사용이라 무관하지만 패치 버전 1.1.2로 업그레이드 완료), `chromadb`(임베디드 로컬 모드로만 사용해 해당 없는 서버 API/멀티테넌시 취약점, 수정 버전 없음 — 현재 사용 방식에서는 공격 표면 아님으로 판단, 추후 chromadb 업그레이드 시 재확인), `oauthlib`(OAuth2 PKCE 타이밍 사이드채널, 앱이 OAuth 플로우 자체를 쓰지 않아 미사용 코드 경로 — 상위 패키지 메이저 업그레이드 리스크 대비 낮은 우선순위로 보류). `npm audit`: 0건.
+- `security-review` 스킬로 최종 리뷰 예정(다음 단계)
 
 ---
 

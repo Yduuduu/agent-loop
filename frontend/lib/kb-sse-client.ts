@@ -22,7 +22,9 @@ export function connectKbDocumentStream(
 ): () => void {
   const EventSourceImpl =
     options?.EventSourceImpl ?? (EventSource as unknown as EventSourceConstructor);
-  const source = new EventSourceImpl(kbDocumentStreamUrl(docId));
+  // Phase 6.2: withCredentials 없이는 브라우저가 캐시해둔 Basic 인증 정보를
+  // 다른 origin(백엔드)으로 보내지 않아 스트림이 401로 즉시 끊긴다.
+  const source = new EventSourceImpl(kbDocumentStreamUrl(docId), { withCredentials: true });
 
   const listen = <T>(type: KBEventType, handler?: (data: T) => void) => {
     source.addEventListener(type, (event) => {

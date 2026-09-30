@@ -3,12 +3,12 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 
 from app.api import event_bus
-from app.api.deps import PolicySummarizerDep, SessionDep, VectorstoreBuilderDep
+from app.api.deps import PolicySummarizerDep, SessionDep, VectorstoreBuilderDep, require_admin_auth
 from app.api.kb_runner import run_ingestion
 from app.api.schemas.knowledge_base import (
     KBDocumentCreateResponse,
@@ -17,9 +17,14 @@ from app.api.schemas.knowledge_base import (
     PolicyItem,
 )
 from app.core.config import get_settings
+from app.core.security import sanitize_filename
 from app.db.models import PolicyDocument
 
-router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
+router = APIRouter(
+    prefix="/api/knowledge-base",
+    tags=["knowledge-base"],
+    dependencies=[Depends(require_admin_auth)],
+)
 
 # 인제스천이 아직 끝나지 않은 문서는 파일/벡터가 쓰기 중일 수 있어 삭제를 막는다.
 INGESTION_TERMINAL_STATUSES = {"indexed", "failed"}
@@ -28,6 +33,7 @@ INGESTION_TERMINAL_STATUSES = {"indexed", "failed"}
 _background_tasks: set[asyncio.Task] = set()
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+PDF_MAGIC = b"%PDF-"
 
 FileUpload = Annotated[UploadFile, File()]
 
@@ -42,13 +48,20 @@ async def upload_document(
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="PDF 파일만 업로드할 수 있습니다")
 
+    safe_filename = sanitize_filename(file.filename or "")
+    if not safe_filename:
+        raise HTTPException(status_code=400, detail="올바르지 않은 파일명입니다")
+
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=400, detail="파일이 너무 큽니다 (최대 20MB)")
     if not content:
         raise HTTPException(status_code=400, detail="빈 파일입니다")
+    # 확장자만으로는 실제 내용을 보장할 수 없다 — PDF 매직 바이트를 직접 확인한다.
+    if not content.startswith(PDF_MAGIC):
+        raise HTTPException(status_code=400, detail="유효한 PDF 파일이 아닙니다")
 
-    doc = PolicyDocument(filename=file.filename, status="uploaded", progress_pct=0, chunk_count=0)
+    doc = PolicyDocument(filename=safe_filename, status="uploaded", progress_pct=0, chunk_count=0)
     session.add(doc)
     await session.commit()
     await session.refresh(doc)
@@ -58,7 +71,7 @@ async def upload_document(
     dest_dir.mkdir(parents=True, exist_ok=True)
     # doc_id를 파일명에 접두해 동일 파일명 재업로드가 기존 원본을 덮어쓰지 않게 한다
     # (버전 관리는 MVP 범위 밖 — additive만 지원).
-    dest_path = dest_dir / f"{doc.doc_id}-{file.filename}"
+    dest_path = dest_dir / f"{doc.doc_id}-{safe_filename}"
     dest_path.write_bytes(content)
     doc.file_path = str(dest_path)
     await session.commit()
@@ -133,7 +146,9 @@ async def delete_document(
     if doc is None:
         raise HTTPException(status_code=404, detail="document not found")
     if doc.status not in INGESTION_TERMINAL_STATUSES:
-        raise HTTPException(status_code=409, detail="인제스천이 진행 중인 문서는 삭제할 수 없습니다")
+        raise HTTPException(
+            status_code=409, detail="인제스천이 진행 중인 문서는 삭제할 수 없습니다"
+        )
 
     if doc.chunk_count:
         vectorstore = build_vectorstore()

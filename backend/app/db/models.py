@@ -93,3 +93,11 @@ class PolicyDocument(Base):
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    # 원본 PDF의 디스크 경로. Phase 6은 업로드 시점에 dest_path만 조립하고 DB에
+    # 남기지 않았는데, 열람/삭제(Phase 6.1)가 파일을 안정적으로 찾으려면 영속화가 필요하다.
+    file_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # 인제스천 상태 머신과 독립적인 후처리 단계 — indexed와 분리해 기존
+    # TERMINAL_STATUSES(프론트) 폴링 로직에 영향을 주지 않는다.
+    # pending -> summarizing -> done | failed
+    policy_summary_status: Mapped[str] = mapped_column(String(32), default="pending")
+    policy_summary: Mapped[list[dict] | None] = mapped_column(JSON, nullable=True)

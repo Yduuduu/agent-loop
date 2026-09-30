@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.refund_agent.graph import build_graph
 from app.db.session import get_session
+from app.rag.policy_summarizer import SummarizeFn, default_summarize_policy_document
 from app.rag.retriever import get_vectorstore
 
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
@@ -36,3 +37,13 @@ def get_vectorstore_builder() -> VectorstoreBuilder:
 
 
 VectorstoreBuilderDep = Annotated[VectorstoreBuilder, Depends(get_vectorstore_builder)]
+
+# 테스트에서 app.dependency_overrides[get_policy_summarizer]로 치환해
+# 실제 LLM 호출 없이 결정론적인 fake 요약 함수를 쓴다.
+
+
+def get_policy_summarizer() -> SummarizeFn:
+    return default_summarize_policy_document
+
+
+PolicySummarizerDep = Annotated[SummarizeFn, Depends(get_policy_summarizer)]

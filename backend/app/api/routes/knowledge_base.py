@@ -1,19 +1,28 @@
 import asyncio
+from collections import defaultdict
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 
 from app.api import event_bus
-from app.api.deps import SessionDep, VectorstoreBuilderDep
+from app.api.deps import PolicySummarizerDep, SessionDep, VectorstoreBuilderDep
 from app.api.kb_runner import run_ingestion
-from app.api.schemas.knowledge_base import KBDocumentCreateResponse, KBDocumentResponse
+from app.api.schemas.knowledge_base import (
+    KBDocumentCreateResponse,
+    KBDocumentResponse,
+    PolicyGroup,
+    PolicyItem,
+)
 from app.core.config import get_settings
 from app.db.models import PolicyDocument
 
 router = APIRouter(prefix="/api/knowledge-base", tags=["knowledge-base"])
+
+# 인제스천이 아직 끝나지 않은 문서는 파일/벡터가 쓰기 중일 수 있어 삭제를 막는다.
+INGESTION_TERMINAL_STATUSES = {"indexed", "failed"}
 
 # fire-and-forget 백그라운드 태스크가 GC되지 않도록 강한 참조를 유지한다.
 _background_tasks: set[asyncio.Task] = set()
@@ -27,6 +36,7 @@ FileUpload = Annotated[UploadFile, File()]
 async def upload_document(
     session: SessionDep,
     build_vectorstore: VectorstoreBuilderDep,
+    summarize_policy: PolicySummarizerDep,
     file: FileUpload,
 ) -> KBDocumentCreateResponse:
     if not (file.filename or "").lower().endswith(".pdf"):
@@ -50,9 +60,13 @@ async def upload_document(
     # (버전 관리는 MVP 범위 밖 — additive만 지원).
     dest_path = dest_dir / f"{doc.doc_id}-{file.filename}"
     dest_path.write_bytes(content)
+    doc.file_path = str(dest_path)
+    await session.commit()
 
     event_bus.create_queue(f"kb:{doc.doc_id}")
-    task = asyncio.create_task(run_ingestion(doc.doc_id, dest_path, build_vectorstore))
+    task = asyncio.create_task(
+        run_ingestion(doc.doc_id, dest_path, build_vectorstore, summarize_policy)
+    )
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 
@@ -101,6 +115,55 @@ async def get_document(doc_id: str, session: SessionDep) -> KBDocumentResponse:
     return _to_response(doc)
 
 
+@router.get("/documents/{doc_id}/file")
+async def get_document_file(doc_id: str, session: SessionDep) -> FileResponse:
+    doc = await session.scalar(select(PolicyDocument).where(PolicyDocument.doc_id == doc_id))
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    if not doc.file_path or not Path(doc.file_path).exists():
+        raise HTTPException(status_code=404, detail="file not found on disk")
+    return FileResponse(doc.file_path, media_type="application/pdf", filename=doc.filename)
+
+
+@router.delete("/documents/{doc_id}", status_code=204)
+async def delete_document(
+    doc_id: str, session: SessionDep, build_vectorstore: VectorstoreBuilderDep
+) -> None:
+    doc = await session.scalar(select(PolicyDocument).where(PolicyDocument.doc_id == doc_id))
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    if doc.status not in INGESTION_TERMINAL_STATUSES:
+        raise HTTPException(status_code=409, detail="인제스천이 진행 중인 문서는 삭제할 수 없습니다")
+
+    if doc.chunk_count:
+        vectorstore = build_vectorstore()
+        ids = [f"{doc_id}-{i}" for i in range(doc.chunk_count)]
+        await vectorstore.adelete(ids=ids)
+
+    if doc.file_path:
+        Path(doc.file_path).unlink(missing_ok=True)
+
+    event_bus.remove_queue(f"kb:{doc_id}")
+    await session.delete(doc)
+    await session.commit()
+
+
+@router.get("/policies", response_model=list[PolicyGroup])
+async def list_policies(session: SessionDep) -> list[PolicyGroup]:
+    docs = (
+        await session.scalars(
+            select(PolicyDocument).where(PolicyDocument.policy_summary_status == "done")
+        )
+    ).all()
+
+    grouped: dict[str, list[PolicyItem]] = defaultdict(list)
+    for doc in docs:
+        for raw_item in doc.policy_summary or []:
+            grouped[raw_item["category"]].append(PolicyItem(**raw_item))
+
+    return [PolicyGroup(category=category, items=items) for category, items in grouped.items()]
+
+
 def _to_response(doc: PolicyDocument) -> KBDocumentResponse:
     return KBDocumentResponse(
         doc_id=doc.doc_id,
@@ -109,4 +172,8 @@ def _to_response(doc: PolicyDocument) -> KBDocumentResponse:
         progress_pct=doc.progress_pct,
         chunk_count=doc.chunk_count,
         created_at=doc.created_at,
+        policy_summary_status=doc.policy_summary_status,
+        policy_summary=[PolicyItem(**item) for item in doc.policy_summary]
+        if doc.policy_summary
+        else None,
     )

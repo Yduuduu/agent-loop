@@ -1,6 +1,7 @@
 import type {
   KBDocumentCreateResponse,
   KBDocumentResponse,
+  PolicyGroup,
   RefundCaseStatus,
   RefundCaseStatusResponse,
   RefundRequestCreateResponse,
@@ -91,4 +92,23 @@ export async function getKbDocument(docId: string): Promise<KBDocumentResponse> 
 
 export function kbDocumentStreamUrl(docId: string): string {
   return `${API_BASE_URL}/api/knowledge-base/documents/${docId}/stream`;
+}
+
+export function kbDocumentFileUrl(docId: string): string {
+  return `${API_BASE_URL}/api/knowledge-base/documents/${docId}/file`;
+}
+
+export async function deleteKbDocument(docId: string): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/documents/${docId}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`${response.status} ${response.statusText}: ${body}`);
+  }
+}
+
+export async function listKbPolicies(): Promise<PolicyGroup[]> {
+  const response = await fetch(`${API_BASE_URL}/api/knowledge-base/policies`);
+  return parseOrThrow(response);
 }

@@ -85,6 +85,17 @@ export interface KBFailedData {
 
 export type KBDocumentStatus = "uploaded" | "chunking" | "embedding" | "indexed" | "failed";
 
+export type PolicyCategory = "환불기한" | "파손기준" | "증빙요건" | "고액기준" | "기타";
+
+export interface PolicyItem {
+  category: PolicyCategory;
+  title: string;
+  summary: string;
+  source_excerpt: string;
+}
+
+export type PolicySummaryStatus = "pending" | "summarizing" | "done" | "failed";
+
 export interface KBDocumentResponse {
   doc_id: string;
   filename: string;
@@ -92,8 +103,15 @@ export interface KBDocumentResponse {
   progress_pct: number;
   chunk_count: number;
   created_at: string;
+  policy_summary_status: PolicySummaryStatus;
+  policy_summary: PolicyItem[] | null;
 }
 
 export interface KBDocumentCreateResponse {
   doc_id: string;
+}
+
+export interface PolicyGroup {
+  category: string;
+  items: PolicyItem[];
 }

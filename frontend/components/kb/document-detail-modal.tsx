@@ -59,8 +59,8 @@ export function DocumentDetailModal({
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold">{doc.filename}</h2>
             <p className="mt-1 text-xs text-text-secondary">
-              {STATUS_LABELS[doc.status] ?? doc.status} · {doc.chunk_count}청크 ·{" "}
-              {new Date(doc.created_at).toLocaleString()}
+              {doc.product_category ?? "미분류"} · {STATUS_LABELS[doc.status] ?? doc.status} ·{" "}
+              {doc.chunk_count}청크 · {new Date(doc.created_at).toLocaleString()}
             </p>
           </div>
           <button
@@ -102,7 +102,7 @@ export function DocumentDetailModal({
             {POLICY_SUMMARY_STATUS_LABELS[doc.policy_summary_status] ?? doc.policy_summary_status}
           </h3>
           {doc.policy_summary && doc.policy_summary.length > 0 ? (
-            <PolicyItemList items={doc.policy_summary} />
+            <PolicyItemList items={doc.policy_summary} showPolicyType />
           ) : (
             <p className="text-sm text-text-secondary">
               {doc.policy_summary_status === "done"

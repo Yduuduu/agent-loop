@@ -3,7 +3,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 
@@ -13,10 +13,16 @@ from app.api.kb_runner import run_ingestion
 from app.api.schemas.knowledge_base import (
     KBDocumentCreateResponse,
     KBDocumentResponse,
+    PolicyCategoryResponse,
     PolicyGroup,
     PolicyItem,
 )
 from app.core.config import get_settings
+from app.core.policy_categories import (
+    POLICY_CATEGORIES,
+    UNCATEGORIZED,
+    is_valid_product_category,
+)
 from app.core.security import sanitize_filename
 from app.db.models import PolicyDocument
 
@@ -36,6 +42,16 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 PDF_MAGIC = b"%PDF-"
 
 FileUpload = Annotated[UploadFile, File()]
+# 기존 클라이언트/스크립트 하위 호환을 위해 선택 입력으로 둔다(미입력 시 미분류).
+ProductCategoryForm = Annotated[str | None, Form()]
+
+
+@router.get("/categories", response_model=list[PolicyCategoryResponse])
+async def list_categories() -> list[PolicyCategoryResponse]:
+    return [
+        PolicyCategoryResponse(product_category=category, policy_types=types)
+        for category, types in POLICY_CATEGORIES.items()
+    ]
 
 
 @router.post("/documents", response_model=KBDocumentCreateResponse)
@@ -44,7 +60,12 @@ async def upload_document(
     build_vectorstore: VectorstoreBuilderDep,
     summarize_policy: PolicySummarizerDep,
     file: FileUpload,
+    product_category: ProductCategoryForm = None,
 ) -> KBDocumentCreateResponse:
+    product_category = product_category or None
+    if product_category is not None and not is_valid_product_category(product_category):
+        raise HTTPException(status_code=400, detail="알 수 없는 정책 대분류입니다")
+
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="PDF 파일만 업로드할 수 있습니다")
 
@@ -61,7 +82,13 @@ async def upload_document(
     if not content.startswith(PDF_MAGIC):
         raise HTTPException(status_code=400, detail="유효한 PDF 파일이 아닙니다")
 
-    doc = PolicyDocument(filename=safe_filename, status="uploaded", progress_pct=0, chunk_count=0)
+    doc = PolicyDocument(
+        filename=safe_filename,
+        product_category=product_category,
+        status="uploaded",
+        progress_pct=0,
+        chunk_count=0,
+    )
     session.add(doc)
     await session.commit()
     await session.refresh(doc)
@@ -78,7 +105,7 @@ async def upload_document(
 
     event_bus.create_queue(f"kb:{doc.doc_id}")
     task = asyncio.create_task(
-        run_ingestion(doc.doc_id, dest_path, build_vectorstore, summarize_policy)
+        run_ingestion(doc.doc_id, dest_path, build_vectorstore, summarize_policy, product_category)
     )
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
@@ -171,24 +198,50 @@ async def list_policies(session: SessionDep) -> list[PolicyGroup]:
         )
     ).all()
 
-    grouped: dict[str, list[PolicyItem]] = defaultdict(list)
+    grouped: dict[tuple[str, str], list[PolicyItem]] = defaultdict(list)
     for doc in docs:
+        product_category = doc.product_category or UNCATEGORIZED
         for raw_item in doc.policy_summary or []:
-            grouped[raw_item["category"]].append(PolicyItem(**raw_item))
+            item = _load_policy_item(raw_item)
+            grouped[(product_category, item.policy_type)].append(item)
 
-    return [PolicyGroup(category=category, items=items) for category, items in grouped.items()]
+    return [
+        PolicyGroup(product_category=product_category, policy_type=policy_type, items=items)
+        for (product_category, policy_type), items in sorted(
+            grouped.items(), key=lambda entry: _taxonomy_order(*entry[0])
+        )
+    ]
+
+
+def _taxonomy_order(product_category: str, policy_type: str) -> tuple[int, int, str]:
+    """분류 체계 정의 순서대로 정렬하고, 체계에 없는 값(미분류/기타/구버전 라벨)은 뒤로 보낸다."""
+    categories = list(POLICY_CATEGORIES)
+    category_rank = (
+        categories.index(product_category) if product_category in categories else len(categories)
+    )
+    types = POLICY_CATEGORIES.get(product_category, [])
+    type_rank = types.index(policy_type) if policy_type in types else len(types)
+    return category_rank, type_rank, policy_type
+
+
+def _load_policy_item(raw_item: dict) -> PolicyItem:
+    # 분류 도입 이전 요약은 소분류 대신 "category"(환불기한/파손기준 등) 키로 저장돼 있다.
+    if "policy_type" not in raw_item and "category" in raw_item:
+        raw_item = {**raw_item, "policy_type": raw_item["category"]}
+    return PolicyItem.model_validate(raw_item)
 
 
 def _to_response(doc: PolicyDocument) -> KBDocumentResponse:
     return KBDocumentResponse(
         doc_id=doc.doc_id,
         filename=doc.filename,
+        product_category=doc.product_category,
         status=doc.status,
         progress_pct=doc.progress_pct,
         chunk_count=doc.chunk_count,
         created_at=doc.created_at,
         policy_summary_status=doc.policy_summary_status,
-        policy_summary=[PolicyItem(**item) for item in doc.policy_summary]
+        policy_summary=[_load_policy_item(item) for item in doc.policy_summary]
         if doc.policy_summary
         else None,
     )

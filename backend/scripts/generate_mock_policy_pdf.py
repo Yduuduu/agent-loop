@@ -1,8 +1,13 @@
-"""목업 환불 정책 PDF(backend/data/policy_docs/refund_policy.pdf)를 생성한다.
+# ruff: noqa: E501 — 정책 문장 픽스처는 PDF 렌더링 시 _wrap으로 줄바꿈되므로 원문 한 줄을 유지한다.
+"""목업 환불 정책 PDF들(backend/data/policy_docs/*.pdf)을 생성한다.
 
-이 스크립트는 최초 1회 정적 픽스처를 만들기 위한 개발용 도구다
+- refund_policy.pdf: 현재 환불 에이전트(이커머스 시나리오)가 참조하는 기존 문서.
+- policy_*.pdf: 교육 플랫폼 정책 분류 체계(app/core/policy_categories.py)의
+  대분류별 문서. 각 절 제목이 소분류 라벨과 같아 요약 LLM이 그대로 분류할 수 있다.
+
+이 스크립트는 정적 픽스처를 만들기 위한 개발용 도구다
 (reportlab, requirements-dev.txt 전용 — 런타임 ingest 경로는 pypdf만 사용).
-정책 문서 자체를 수정하려면 이 스크립트의 SECTIONS를 고쳐 재실행한다.
+정책 문서 자체를 수정하려면 이 스크립트의 섹션 정의를 고쳐 재실행한다.
 """
 
 from pathlib import Path
@@ -13,10 +18,10 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
 
-OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "policy_docs" / "refund_policy.pdf"
+OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "policy_docs"
 FONT_NAME = "HYSMyeongJo-Medium"
 
-SECTIONS = [
+REFUND_POLICY_SECTIONS = [
     (
         "1. 반품/환불 가능 기간",
         [
@@ -66,21 +71,267 @@ SECTIONS = [
 
 TITLE = "AgentOps 환불 정책 (목업 문서)"
 
+# 교육 플랫폼 대분류별 목업 정책서. (파일명, 대분류, 문서 제목, 섹션들)
+# 대분류 → 파일명 대응은 scripts/ingest_policy_docs.py의 CATEGORY_BY_FILENAME과 맞춰야 한다.
+EDU_POLICY_DOCUMENTS: list[tuple[str, str, str, list[tuple[str, list[str]]]]] = [
+    (
+        "policy_class.pdf",
+        "클래스",
+        "클래스(단건 구매) 환불 정책",
+        [
+            (
+                "1. 수강 전 환불",
+                [
+                    "결제일로부터 7일 이내이고 강의를 한 번도 재생하지 않은 경우 결제 금액 전액을 환불한다.",
+                    "맛보기(무료 공개) 강의 시청은 수강 이력으로 보지 않는다.",
+                ],
+            ),
+            (
+                "2. 진도율 기준 환불",
+                [
+                    "수강을 시작한 이후에는 전체 강의 진도율을 기준으로 환불 금액을 산정한다.",
+                    "진도율 1/3 미만은 결제 금액의 2/3, 1/2 미만은 결제 금액의 1/2을 환불한다.",
+                    "진도율 1/2 이상인 경우 환불하지 않는다.",
+                ],
+            ),
+            (
+                "3. 수강기간 만료",
+                [
+                    "수강 기간이 만료된 클래스는 진도율과 무관하게 환불하지 않는다.",
+                    "수강 기간 연장은 만료 전 1회에 한해 유료로 신청할 수 있다.",
+                ],
+            ),
+            (
+                "4. 라이브·오프라인 클래스",
+                [
+                    "개강 3일 전까지 취소 시 전액, 개강 전일까지 취소 시 90%를 환불한다.",
+                    "개강 이후에는 남은 회차 비율만큼 환불하며, 사전 연락 없는 불참(노쇼) 회차는 환불하지 않는다.",
+                ],
+            ),
+            (
+                "5. 강의자료 다운로드",
+                [
+                    "강의자료(PDF, 소스코드 등)를 다운로드한 경우 자료 가액(결제 금액의 10%)을 차감하고 환불한다.",
+                    "자료 다운로드만 하고 강의를 재생하지 않았더라도 수강 전 전액 환불 대상에서 제외한다.",
+                ],
+            ),
+        ],
+    ),
+    (
+        "policy_subscription.pdf",
+        "콘텐츠 구독",
+        "콘텐츠 구독(월간/연간) 환불 정책",
+        [
+            (
+                "1. 월 구독 해지",
+                [
+                    "월 구독은 언제든 해지할 수 있으며 해지 시 다음 결제일부터 결제가 중단된다.",
+                    "이미 결제된 당월 이용료는 환불하지 않고 남은 기간 동안 계속 이용할 수 있다.",
+                ],
+            ),
+            (
+                "2. 월 구독 첫 결제 환불",
+                [
+                    "최초 구독 결제 후 7일 이내이고 콘텐츠 이용 이력이 없으면 전액 환불한다.",
+                ],
+            ),
+            (
+                "3. 연 구독 중도 해지",
+                [
+                    "연 구독을 중도 해지하면 이용한 개월 수를 할인가가 아닌 정가 월 요금으로 계산해 차감한다.",
+                    "차감 후 잔액에서 위약금 10%를 공제한 금액을 환불한다.",
+                ],
+            ),
+            (
+                "4. 자동 갱신",
+                [
+                    "갱신 7일 전 이메일로 사전 고지한다.",
+                    "자동 갱신 결제 후 7일 이내이고 갱신 이후 이용 이력이 없으면 전액 환불한다.",
+                ],
+            ),
+            (
+                "5. 무료체험 유료 전환",
+                [
+                    "무료체험 종료 후 자동으로 결제된 첫 구독료는 결제 후 7일 이내 미이용 시 전액 환불한다.",
+                    "무료체험은 계정당 1회만 제공한다.",
+                ],
+            ),
+            (
+                "6. 플랜 변경",
+                [
+                    "상위 플랜으로 업그레이드하면 남은 기간을 일할 계산해 차액을 즉시 결제한다.",
+                    "하위 플랜으로의 다운그레이드는 다음 결제 주기부터 적용되며 차액을 환불하지 않는다.",
+                ],
+            ),
+        ],
+    ),
+    (
+        "policy_book.pdf",
+        "도서",
+        "도서(실물/전자책) 반품·환불 정책",
+        [
+            (
+                "1. 단순 변심 반품",
+                [
+                    "실물 도서는 수령 후 7일 이내 단순 변심 반품이 가능하다.",
+                    "단순 변심 반품의 왕복 배송비는 고객이 부담한다.",
+                ],
+            ),
+            (
+                "2. 파손·오배송",
+                [
+                    "파손·인쇄 불량·오배송 상품은 수령 후 30일 이내 회사 부담으로 교환 또는 환불한다.",
+                    "파손 상태를 확인할 수 있는 사진을 함께 제출해야 한다.",
+                ],
+            ),
+            (
+                "3. 반품 불가 조건",
+                [
+                    "비닐 포장을 개봉했거나 도서에 필기·훼손 흔적이 있으면 반품할 수 없다.",
+                    "부록 또는 사은품이 누락된 경우 반품할 수 없다.",
+                ],
+            ),
+            (
+                "4. 전자책",
+                [
+                    "전자책은 구매 후 7일 이내이고 다운로드·열람 이력이 없을 때만 환불한다.",
+                    "한 번이라도 열람한 전자책은 환불하지 않는다.",
+                ],
+            ),
+        ],
+    ),
+    (
+        "policy_package.pdf",
+        "패키지·번들",
+        "패키지·번들 상품 환불 정책",
+        [
+            (
+                "1. 번들 부분 환불",
+                [
+                    "번들 구성품 중 일부를 이용한 경우 이용한 구성품의 개별 정가를 결제 금액에서 차감해 환불한다.",
+                    "차감액이 결제 금액 이상이면 환불하지 않는다.",
+                ],
+            ),
+            (
+                "2. 사은품",
+                [
+                    "구매 시 제공된 사은품은 반환하거나, 반환하지 않을 경우 사은품 가액을 차감하고 환불한다.",
+                ],
+            ),
+        ],
+    ),
+    (
+        "policy_payment_common.pdf",
+        "결제·혜택 공통",
+        "결제·혜택 공통 환불 정책",
+        [
+            (
+                "1. 쿠폰·할인",
+                [
+                    "할인 쿠폰을 사용한 주문은 실제 결제 금액을 기준으로 환불액을 산정한다.",
+                    "전액 환불 시 유효기간이 남은 쿠폰은 복원하고, 부분 환불 시에는 복원하지 않는다.",
+                ],
+            ),
+            (
+                "2. 포인트·적립금",
+                [
+                    "포인트로 결제한 금액은 포인트로 반환한다.",
+                    "해당 주문으로 적립된 포인트는 환불 시 회수하며, 이미 사용했다면 환불액에서 차감한다.",
+                ],
+            ),
+            (
+                "3. 결제수단별 환불",
+                [
+                    "신용카드는 승인 취소로 처리하며 카드사에 따라 영업일 기준 3~7일이 소요된다.",
+                    "계좌이체·가상계좌 결제는 고객 명의 계좌로 환불하며 영업일 기준 3일 이내 처리한다.",
+                ],
+            ),
+            (
+                "4. 할부·분할결제",
+                [
+                    "할부 결제의 부분 환불은 카드사 정책에 따라 남은 할부 원금에서 차감된다.",
+                ],
+            ),
+            (
+                "5. 프로모션 상품",
+                [
+                    "특가·이벤트 상품은 상세 페이지에 별도 표기된 환불 조건을 우선 적용한다.",
+                    "별도 표기가 없으면 해당 상품 유형의 일반 환불 정책을 따른다.",
+                ],
+            ),
+            (
+                "6. B2B·단체 구매",
+                [
+                    "기업·단체 구매는 계약서의 환불 조건을 우선 적용한다.",
+                    "계약 조건이 없으면 아직 수강자에게 배정되지 않은 수강권에 한해 환불한다.",
+                ],
+            ),
+        ],
+    ),
+    (
+        "policy_exception.pdf",
+        "예외·특수 상황",
+        "예외·특수 상황 환불 정책",
+        [
+            (
+                "1. 서비스 장애",
+                [
+                    "회사 귀책 사유로 24시간 이상 서비스를 이용하지 못한 경우 장애 기간의 3배를 이용 기간으로 연장한다.",
+                    "고객이 원하면 연장 대신 장애 기간에 해당하는 금액을 환불할 수 있다.",
+                ],
+            ),
+            (
+                "2. 폐강·강사 이탈",
+                [
+                    "회사 또는 강사 사정으로 클래스가 폐강되면 진도율과 무관하게 미제공 분량에 해당하는 금액을 환불한다.",
+                    "개강 전 폐강은 전액 환불한다.",
+                ],
+            ),
+            (
+                "3. 중복 결제",
+                [
+                    "동일 상품이 중복 결제된 경우 확인 즉시 중복 결제분을 전액 환불한다.",
+                ],
+            ),
+            (
+                "4. 미성년자 결제",
+                [
+                    "법정대리인의 동의 없이 미성년자가 결제한 경우 법정대리인이 결제를 취소할 수 있다.",
+                    "취소 요청 시 가족관계를 확인할 수 있는 서류를 제출해야 한다.",
+                ],
+            ),
+            (
+                "5. 부정 이용",
+                [
+                    "계정 공유, 강의 녹화·유출 등 부정 이용이 확인되면 환불하지 않고 이용을 정지한다.",
+                    "부정 이용 의심 건은 자동 판정하지 않고 담당자 검토로 전환한다.",
+                ],
+            ),
+            (
+                "6. 특별 사유",
+                [
+                    "본인 사망, 장기 입원이 필요한 질병, 군 입대 등으로 이용이 불가능한 경우 증빙 제출 시",
+                    "진도율과 무관하게 남은 기간 또는 미수강 분량에 해당하는 금액을 환불한다.",
+                ],
+            ),
+        ],
+    ),
+]
 
-def build_pdf() -> None:
-    pdfmetrics.registerFont(UnicodeCIDFont(FONT_NAME))
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    c = canvas.Canvas(str(OUTPUT_PATH), pagesize=A4)
+def build_pdf(output_path: Path, title: str, sections: list[tuple[str, list[str]]]) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    c = canvas.Canvas(str(output_path), pagesize=A4)
     width, height = A4
     margin = 20 * mm
     y = height - margin
 
     c.setFont(FONT_NAME, 16)
-    c.drawString(margin, y, TITLE)
+    c.drawString(margin, y, title)
     y -= 12 * mm
 
-    for heading, paragraphs in SECTIONS:
+    for heading, paragraphs in sections:
         if y < margin + 30 * mm:
             c.showPage()
             y = height - margin
@@ -103,7 +354,14 @@ def build_pdf() -> None:
         y -= 6 * mm
 
     c.save()
-    print(f"wrote {OUTPUT_PATH}")
+    print(f"wrote {output_path}")
+
+
+def build_all() -> None:
+    pdfmetrics.registerFont(UnicodeCIDFont(FONT_NAME))
+    build_pdf(OUTPUT_DIR / "refund_policy.pdf", TITLE, REFUND_POLICY_SECTIONS)
+    for filename, _product_category, title, sections in EDU_POLICY_DOCUMENTS:
+        build_pdf(OUTPUT_DIR / filename, title, sections)
 
 
 def _wrap(text: str, max_chars: int) -> list[str]:
@@ -120,4 +378,4 @@ def _wrap(text: str, max_chars: int) -> list[str]:
 
 
 if __name__ == "__main__":
-    build_pdf()
+    build_all()

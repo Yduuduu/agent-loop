@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -45,5 +45,34 @@ describe("DropZone", () => {
     await user.click(screen.getByTestId("kb-drop-zone"));
 
     expect(clickSpy).toHaveBeenCalled();
+  });
+
+  it("shows the disabled reason instead of silently ignoring a drop while disabled", () => {
+    const onFilesAccepted = vi.fn();
+    const { rerender } = render(
+      <DropZone
+        onFilesAccepted={onFilesAccepted}
+        disabled
+        disabledReason="대분류를 먼저 선택하세요"
+      />,
+    );
+
+    const file = new File([new Uint8Array(10)], "policy.pdf", { type: "application/pdf" });
+    const dropZone = screen.getByTestId("kb-drop-zone");
+    const dragOver = fireEvent.dragOver(dropZone);
+    fireEvent.drop(dropZone, { dataTransfer: { files: [file] } });
+
+    // preventDefault가 호출돼야(=false 반환) 브라우저가 파일을 열지 않는다.
+    expect(dragOver).toBe(false);
+    expect(onFilesAccepted).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert")).toHaveTextContent("대분류를 먼저 선택하세요");
+
+    // 활성화되면 낡은 안내는 사라지고 드롭이 정상 처리된다.
+    rerender(
+      <DropZone onFilesAccepted={onFilesAccepted} disabledReason="대분류를 먼저 선택하세요" />,
+    );
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    fireEvent.drop(dropZone, { dataTransfer: { files: [file] } });
+    expect(onFilesAccepted).toHaveBeenCalledWith([file]);
   });
 });

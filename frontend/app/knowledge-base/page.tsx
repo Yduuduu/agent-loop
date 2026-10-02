@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { AppShell } from "@/components/app-shell";
+import { CategorySelect } from "@/components/kb/category-select";
 import { DocumentDetailModal } from "@/components/kb/document-detail-modal";
 import { PolicyDashboard } from "@/components/kb/policy-dashboard";
 import { DropZone } from "@/components/kb-upload/drop-zone";
@@ -24,11 +25,12 @@ export default function KnowledgeBasePage() {
   const upload = useUploadKbDocument();
   const { uploads, track } = useKbUploadTracker();
   const [selectedDoc, setSelectedDoc] = useState<KBDocumentResponse | null>(null);
+  const [productCategory, setProductCategory] = useState("");
 
   const handleFilesAccepted = async (files: File[]) => {
     for (const file of files) {
       try {
-        const result = await upload.mutateAsync(file);
+        const result = await upload.mutateAsync({ file, productCategory });
         track(result.doc_id, file.name);
       } catch {
         // useUploadKbDocument의 isError로 별도 표시됨
@@ -47,7 +49,15 @@ export default function KnowledgeBasePage() {
           <PolicyDashboard />
         </section>
 
-        <DropZone onFilesAccepted={handleFilesAccepted} />
+        <section className="flex flex-col gap-3">
+          <CategorySelect value={productCategory} onChange={setProductCategory} />
+          {/* 대분류 없이 올라간 문서는 대시보드에서 미분류로 빠지므로 선택 전에는 업로드를 막는다. */}
+          <DropZone
+            onFilesAccepted={handleFilesAccepted}
+            disabled={!productCategory}
+            disabledReason="정책 대분류를 먼저 선택해야 업로드할 수 있습니다."
+          />
+        </section>
 
         {upload.isError && (
           <p className="text-sm text-status-critical">
@@ -67,7 +77,9 @@ export default function KnowledgeBasePage() {
           <h2 className="mb-3 text-sm font-medium text-text-secondary">문서 목록</h2>
 
           {isLoading && <p className="text-sm text-text-secondary">불러오는 중...</p>}
-          {error && <p className="text-sm text-status-critical">문서 목록을 불러오지 못했습니다.</p>}
+          {error && (
+            <p className="text-sm text-status-critical">문서 목록을 불러오지 못했습니다.</p>
+          )}
           {documents && documents.length === 0 && (
             <p className="text-sm text-text-secondary">아직 업로드된 문서가 없습니다.</p>
           )}
@@ -81,7 +93,12 @@ export default function KnowledgeBasePage() {
                     onClick={() => setSelectedDoc(doc)}
                     className="flex w-full items-center justify-between gap-4 px-4 py-3 text-left text-sm hover:bg-surface-2"
                   >
-                    <span className="truncate">{doc.filename}</span>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="shrink-0 rounded-sm bg-surface-2 px-1.5 py-0.5 text-xs text-text-secondary">
+                        {doc.product_category ?? "미분류"}
+                      </span>
+                      <span className="truncate">{doc.filename}</span>
+                    </div>
                     <div className="flex shrink-0 items-center gap-3 text-text-secondary">
                       <span>{STATUS_LABELS[doc.status] ?? doc.status}</span>
                       <span>{doc.chunk_count}청크</span>

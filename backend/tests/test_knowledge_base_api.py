@@ -29,15 +29,19 @@ from app.rag.retriever import search_policy_chunks
 
 FAKE_POLICY_ITEMS = [
     PolicyItem(
-        category="환불기한",
-        title="7일 이내 무료 반품",
+        policy_type="수강 전 환불",
+        title="결제 후 7일 이내 미수강 시 전액 환불",
         summary="테스트 정책 요약입니다.",
         source_excerpt="AgentOps 테스트 정책 문서입니다.",
     )
 ]
 
+# 요약기에 전달된 대분류를 기록해 업로드 → 요약 경로로 제대로 흘러가는지 검증한다.
+summarize_calls: list[str | None] = []
 
-async def fake_summarize(_document_text: str) -> list[PolicyItem]:
+
+async def fake_summarize(_document_text: str, product_category: str | None) -> list[PolicyItem]:
+    summarize_calls.append(product_category)
     return FAKE_POLICY_ITEMS
 
 
@@ -76,12 +80,21 @@ async def client(test_vectorstore):
     app.dependency_overrides.clear()
 
 
-async def _upload_and_wait(client: httpx.AsyncClient, pdf_path: Path, filename: str) -> str:
+async def _upload_and_wait(
+    client: httpx.AsyncClient,
+    pdf_path: Path,
+    filename: str,
+    *,
+    product_category: str | None = None,
+) -> str:
+    data = {"product_category": product_category} if product_category else None
     with pdf_path.open("rb") as f:
         create_resp = await client.post(
             "/api/knowledge-base/documents",
             files={"file": (filename, f, "application/pdf")},
+            data=data,
         )
+    assert create_resp.status_code == 200
     doc_id = create_resp.json()["doc_id"]
     await _collect_stream_events(client, doc_id)
     return doc_id
@@ -303,7 +316,9 @@ async def test_policy_summary_populates_after_indexing_and_policies_endpoint_gro
 ) -> None:
     pdf_path = tmp_path / "policy_summary.pdf"
     make_test_pdf(pdf_path, lines=["정책 요약 테스트 문서."])
-    doc_id = await _upload_and_wait(client, pdf_path, "policy_summary.pdf")
+    doc_id = await _upload_and_wait(
+        client, pdf_path, "policy_summary.pdf", product_category="클래스"
+    )
 
     body = await _wait_for_policy_summary_status(client, doc_id)
     assert body["policy_summary_status"] == "done"
@@ -311,6 +326,97 @@ async def test_policy_summary_populates_after_indexing_and_policies_endpoint_gro
 
     policies_resp = await client.get("/api/knowledge-base/policies")
     assert policies_resp.status_code == 200
-    groups = {g["category"]: g["items"] for g in policies_resp.json()}
-    assert "환불기한" in groups
-    assert any(item["title"] == "7일 이내 무료 반품" for item in groups["환불기한"])
+    groups = {(g["product_category"], g["policy_type"]): g["items"] for g in policies_resp.json()}
+    assert ("클래스", "수강 전 환불") in groups
+    assert groups[("클래스", "수강 전 환불")][0]["title"] == "결제 후 7일 이내 미수강 시 전액 환불"
+
+
+async def test_categories_endpoint_returns_taxonomy(client: httpx.AsyncClient) -> None:
+    resp = await client.get("/api/knowledge-base/categories")
+    assert resp.status_code == 200
+    categories = {c["product_category"]: c["policy_types"] for c in resp.json()}
+    assert list(categories) == [
+        "클래스",
+        "콘텐츠 구독",
+        "도서",
+        "패키지·번들",
+        "결제·혜택 공통",
+        "예외·특수 상황",
+    ]
+    assert "연 구독 중도 해지" in categories["콘텐츠 구독"]
+
+
+async def test_upload_with_category_is_stored_and_passed_to_chunks_and_summarizer(
+    client: httpx.AsyncClient, test_vectorstore: Chroma, tmp_path: Path
+) -> None:
+    summarize_calls.clear()
+    pdf_path = tmp_path / "subscription.pdf"
+    make_test_pdf(pdf_path, lines=["구독 정책 테스트 문서."])
+    doc_id = await _upload_and_wait(
+        client, pdf_path, "subscription.pdf", product_category="콘텐츠 구독"
+    )
+
+    body = await _wait_for_policy_summary_status(client, doc_id)
+    assert body["product_category"] == "콘텐츠 구독"
+    assert summarize_calls == ["콘텐츠 구독"]
+
+    results = await search_policy_chunks("아무 질의", k=50, vectorstore=test_vectorstore)
+    matching = [r for r in results if r.metadata.get("doc_id") == doc_id]
+    assert matching
+    assert all(r.metadata.get("product_category") == "콘텐츠 구독" for r in matching)
+
+
+async def test_upload_without_category_is_uncategorized(
+    client: httpx.AsyncClient, tmp_path: Path
+) -> None:
+    pdf_path = tmp_path / "legacy.pdf"
+    make_test_pdf(pdf_path, lines=["미분류 문서."])
+    doc_id = await _upload_and_wait(client, pdf_path, "legacy.pdf")
+    await _wait_for_policy_summary_status(client, doc_id)
+
+    body = (await client.get(f"/api/knowledge-base/documents/{doc_id}")).json()
+    assert body["product_category"] is None
+
+    groups = (await client.get("/api/knowledge-base/policies")).json()
+    assert any(g["product_category"] == "미분류" for g in groups)
+
+
+async def test_rejects_unknown_category(client: httpx.AsyncClient, tmp_path: Path) -> None:
+    pdf_path = tmp_path / "unknown.pdf"
+    make_test_pdf(pdf_path, lines=["알 수 없는 분류."])
+    with pdf_path.open("rb") as f:
+        resp = await client.post(
+            "/api/knowledge-base/documents",
+            files={"file": ("unknown.pdf", f, "application/pdf")},
+            data={"product_category": "전자제품"},
+        )
+    assert resp.status_code == 400
+
+
+async def test_legacy_summary_items_are_read_as_policy_type(
+    client: httpx.AsyncClient,
+) -> None:
+    # 분류 도입 이전에 "category" 키로 저장된 요약도 깨지지 않고 읽혀야 한다.
+    async with db_session.async_session_factory() as session:
+        doc = PolicyDocument(
+            filename="old.pdf",
+            status="indexed",
+            policy_summary_status="done",
+            policy_summary=[
+                {
+                    "category": "환불기한",
+                    "title": "구버전 항목",
+                    "summary": "요약",
+                    "source_excerpt": "원문",
+                }
+            ],
+        )
+        session.add(doc)
+        await session.commit()
+        doc_id = doc.doc_id
+
+    body = (await client.get(f"/api/knowledge-base/documents/{doc_id}")).json()
+    assert body["policy_summary"][0]["policy_type"] == "환불기한"
+
+    groups = (await client.get("/api/knowledge-base/policies")).json()
+    assert {"product_category": "미분류", "policy_type": "환불기한"}.items() <= groups[-1].items()

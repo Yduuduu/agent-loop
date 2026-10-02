@@ -85,10 +85,16 @@ export interface KBFailedData {
 
 export type KBDocumentStatus = "uploaded" | "chunking" | "embedding" | "indexed" | "failed";
 
-export type PolicyCategory = "환불기한" | "파손기준" | "증빙요건" | "고액기준" | "기타";
+// 정책 분류 체계(대분류 → 소분류)는 백엔드 app/core/policy_categories.py가 단일 소스다.
+// 프론트는 GET /api/knowledge-base/categories로 받아 쓰므로 라벨을 하드코딩하지 않는다.
+export interface PolicyCategoryResponse {
+  product_category: string;
+  policy_types: string[];
+}
 
 export interface PolicyItem {
-  category: PolicyCategory;
+  // 소분류 라벨. 분류 도입 이전 요약은 구버전 라벨(환불기한 등)이 그대로 올 수 있다.
+  policy_type: string;
   title: string;
   summary: string;
   source_excerpt: string;
@@ -99,6 +105,8 @@ export type PolicySummaryStatus = "pending" | "summarizing" | "done" | "failed";
 export interface KBDocumentResponse {
   doc_id: string;
   filename: string;
+  // 대분류 라벨. null이면 미분류.
+  product_category: string | null;
   status: KBDocumentStatus;
   progress_pct: number;
   chunk_count: number;
@@ -112,6 +120,8 @@ export interface KBDocumentCreateResponse {
 }
 
 export interface PolicyGroup {
-  category: string;
+  // 미분류 문서는 "미분류"로 온다.
+  product_category: string;
+  policy_type: string;
   items: PolicyItem[];
 }

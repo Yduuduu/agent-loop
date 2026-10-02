@@ -1,6 +1,7 @@
 import type {
   KBDocumentCreateResponse,
   KBDocumentResponse,
+  PolicyCategoryResponse,
   PolicyGroup,
   RefundCaseStatus,
   RefundCaseStatusResponse,
@@ -85,9 +86,16 @@ export function refundStreamUrl(caseId: string): string {
   return `${API_BASE_URL}/api/refund-requests/${caseId}/stream`;
 }
 
-export async function uploadKbDocument(file: File): Promise<KBDocumentCreateResponse> {
+export async function uploadKbDocument({
+  file,
+  productCategory,
+}: {
+  file: File;
+  productCategory: string;
+}): Promise<KBDocumentCreateResponse> {
   const form = new FormData();
   form.set("file", file);
+  form.set("product_category", productCategory);
 
   const response = await apiFetch(`${API_BASE_URL}/api/knowledge-base/documents`, {
     method: "POST",
@@ -122,6 +130,11 @@ export async function deleteKbDocument(docId: string): Promise<void> {
     const body = await response.text();
     throw new Error(`${response.status} ${response.statusText}: ${body}`);
   }
+}
+
+export async function listKbCategories(): Promise<PolicyCategoryResponse[]> {
+  const response = await apiFetch(`${API_BASE_URL}/api/knowledge-base/categories`);
+  return parseOrThrow(response);
 }
 
 export async function listKbPolicies(): Promise<PolicyGroup[]> {

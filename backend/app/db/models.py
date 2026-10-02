@@ -88,6 +88,9 @@ class PolicyDocument(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     doc_id: Mapped[str] = mapped_column(String(32), unique=True, index=True, default=_uuid_hex)
     filename: Mapped[str] = mapped_column(String(255))
+    # 정책서 대분류(app/core/policy_categories.py의 한국어 라벨). None이면 미분류 —
+    # 분류 도입 이전 업로드분과 CLI 벌크 적재 경로의 하위 호환을 위해 nullable로 둔다.
+    product_category: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     # uploaded -> chunking -> embedding -> indexed | failed
     status: Mapped[str] = mapped_column(String(32), default="uploaded")
     progress_pct: Mapped[int] = mapped_column(Integer, default=0)

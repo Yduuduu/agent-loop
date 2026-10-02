@@ -33,6 +33,7 @@ async def run_ingestion(
     pdf_path: Path,
     build_vectorstore: VectorstoreBuilder,
     summarize: SummarizeFn,
+    product_category: str | None = None,
 ) -> None:
     key = _stream_key(doc_id)
     vectorstore: Chroma = build_vectorstore()
@@ -47,7 +48,13 @@ async def run_ingestion(
         )
 
     try:
-        await ingest_pdf(pdf_path, doc_id=doc_id, vectorstore=vectorstore, on_progress=on_progress)
+        await ingest_pdf(
+            pdf_path,
+            doc_id=doc_id,
+            product_category=product_category,
+            vectorstore=vectorstore,
+            on_progress=on_progress,
+        )
     except Exception as exc:  # noqa: BLE001 — 원인 불문 failed 이벤트로 알리고 상태를 failed로
         await _persist(doc_id, status="failed", progress_pct=None, chunk_count=None)
         await event_bus.publish(
@@ -59,14 +66,16 @@ async def run_ingestion(
 
     # 정책 요약은 인제스천 상태 머신과 분리된 후처리라, 실패해도 문서의
     # 검색 가능 여부(indexed)에는 영향을 주지 않는다.
-    await run_policy_summarization(doc_id, pdf_path, summarize)
+    await run_policy_summarization(doc_id, pdf_path, summarize, product_category)
 
 
-async def run_policy_summarization(doc_id: str, pdf_path: Path, summarize: SummarizeFn) -> None:
+async def run_policy_summarization(
+    doc_id: str, pdf_path: Path, summarize: SummarizeFn, product_category: str | None = None
+) -> None:
     await _persist_policy_summary_status(doc_id, "summarizing")
     try:
         text = extract_pdf_text(pdf_path)
-        items = await summarize(text)
+        items = await summarize(text, product_category)
         await _persist_policy_summary(
             doc_id, status="done", summary=[item.model_dump() for item in items]
         )

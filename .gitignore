@@ -17,6 +17,7 @@ backend/data/uploads/*
 # 문서(고정 fixture)만 추적한다.
 backend/data/policy_docs/*
 !backend/data/policy_docs/refund_policy.pdf
+!backend/data/policy_docs/policy_*.pdf
 backend/data/chroma/
 backend/chroma/
 .chroma/
